@@ -1,0 +1,10 @@
+[package]
+name = "drone-networks"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["crates/*"]
+
+[dependencies]
+dn_internal = { path = "crates/dn_internal" }

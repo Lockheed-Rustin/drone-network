@@ -1,0 +1,9 @@
+[package]
+name = "dn_internal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dn_client = { path = "../dn_client" }
+dn_network = { path = "../dn_network" }
+dn_server = { path = "../dn_server" }
