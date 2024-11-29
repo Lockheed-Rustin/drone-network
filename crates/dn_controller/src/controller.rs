@@ -17,11 +17,6 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
-    pub fn crash_all(&mut self) {
-        for id in self.drones_send.keys().into_iter() {
-            self.crash_drone(*id);
-        }
-    }
     pub fn crash_drone(&self, drone_id: NodeId) {
         self.drones_send[&drone_id]
             .send(DroneCommand::Crash)

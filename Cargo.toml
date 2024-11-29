@@ -8,3 +8,13 @@ members = ["crates/*"]
 
 [dependencies]
 dn_internal = { path = "crates/dn_internal" }
+
+[dev-dependencies]
+toml = "0.8.19"
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git", features = [
+    "serialize",
+] }
+
+[[example]]
+name = "network-init"
+path = "examples/network/network-init.rs"
