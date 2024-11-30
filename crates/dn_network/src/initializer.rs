@@ -2,9 +2,11 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{ClientCommand, SimulationController};
 use dn_server::Server;
+use dn_topology::{Node, Topology};
 use drone::LockheedRustin;
+use petgraph::prelude::UnGraphMap;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     thread::{self, JoinHandle},
 };
 use wg_2024::{
@@ -16,15 +18,26 @@ use wg_2024::{
 };
 
 #[derive(Clone, Debug)]
-pub enum NetworkInitErr {
-    GraphMustBeBidirectional,
-    InvalidPdr,
-    InvalidNeighbor,
-    InvalidNodeId,
-    NodeConnectedToSelf,
+pub enum NetworkInitError {
+    /// If a client or server is connected to a non drone.
+    Edge,
+    /// If a node is connected to a node id that is not present in the nodes.
+    NodeId,
+    /// If a node is connected to self.
+    SelfLoop,
+    /// Drone pdr not in range.
+    Pdr,
+    /// If client is connected to less than one drone or more than two.
+    ///
+    /// If server is connected to less than two drones.
+    EdgeCount,
+    /// If the graph is not bidirectional.
+    Directed,
 }
 
-pub fn init_network(config: &config::Config) -> Result<SimulationController, NetworkInitErr> {
+pub fn init_network(config: &config::Config) -> Result<SimulationController, NetworkInitError> {
+    let topology = build_topology(config)?;
+
     let (node_send, node_recv) = unbounded();
     let mut handles = Vec::new();
 
@@ -48,56 +61,103 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         clients_send,
         server_ids,
         node_recv,
+        topology,
         handles,
     })
 }
 
-fn is_drone(nt: NodeType) -> bool {
-    if let NodeType::Drone = nt {
-        true
-    } else {
-        false
-    }
-}
+pub fn build_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
+    let mut graph = UnGraphMap::new();
+    let mut nodes = HashMap::new();
 
-pub fn check_valid(config: &config::Config) -> Result<(), NetworkInitErr> {
-    let mut graph = HashMap::new();
     for drone in config.drone.iter() {
         if drone.pdr < 0.0 || drone.pdr > 1.0 {
-            return Err(NetworkInitErr::InvalidPdr);
+            return Err(NetworkInitError::Pdr);
         }
-        let neighbors = drone
-            .connected_node_ids
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>();
-        graph.insert(drone.id, (NodeType::Drone, neighbors));
+        let node = Node {
+            id: drone.id,
+            ty: NodeType::Drone,
+        };
+        graph.add_node(node);
+        nodes.insert(drone.id, node);
     }
     for client in config.client.iter() {
-        let neighbors = client.connected_drone_ids.iter().cloned().collect();
-        graph.insert(client.id, (NodeType::Client, neighbors));
+        if client.connected_drone_ids.len() < 1 || client.connected_drone_ids.len() > 2 {
+            return Err(NetworkInitError::EdgeCount);
+        }
+        let node = Node {
+            id: client.id,
+            ty: NodeType::Drone,
+        };
+        graph.add_node(node);
+        nodes.insert(client.id, node);
     }
     for server in config.server.iter() {
-        let neighbors = server.connected_drone_ids.iter().cloned().collect();
-        graph.insert(server.id, (NodeType::Server, neighbors));
+        if server.connected_drone_ids.len() < 2 {
+            return Err(NetworkInitError::EdgeCount);
+        }
+        let node = Node {
+            id: server.id,
+            ty: NodeType::Server,
+        };
+        graph.add_node(node);
+        nodes.insert(server.id, node);
     }
-    for (node_id, (node_type, neighbors)) in graph.iter() {
-        for n_node_id in neighbors.iter() {
-            match graph.get(n_node_id) {
-                Some((n_node_type, n_neighbors)) => {
-                    if node_id == n_node_id {
-                        return Err(NetworkInitErr::NodeConnectedToSelf);
-                    } else if !is_drone(node_type.clone()) && !is_drone(n_node_type.clone()) {
-                        return Err(NetworkInitErr::InvalidNeighbor);
-                    } else if n_neighbors.contains(node_id) {
-                        return Err(NetworkInitErr::GraphMustBeBidirectional);
-                    }
-                }
-                None => return Err(NetworkInitErr::InvalidNodeId),
+
+    for drone in config.drone.iter() {
+        let node = nodes[&drone.id];
+        for neighbor_id in drone.connected_node_ids.iter() {
+            if drone.id == *neighbor_id {
+                return Err(NetworkInitError::SelfLoop);
+            }
+            match nodes.get(neighbor_id) {
+                Some(&neighbor) => graph.add_edge(node, neighbor, ()),
+                None => return Err(NetworkInitError::NodeId),
             };
         }
     }
-    Ok(())
+    for client in config.client.iter() {
+        let node = nodes[&client.id];
+        for neighbor_id in client.connected_drone_ids.iter() {
+            if client.id == *neighbor_id {
+                return Err(NetworkInitError::SelfLoop);
+            }
+            match nodes.get(neighbor_id) {
+                Some(&neighbor) => {
+                    if neighbor.ty != NodeType::Drone {
+                        return Err(NetworkInitError::Edge);
+                    } else {
+                        graph.add_edge(node, neighbor, ());
+                    }
+                }
+                None => return Err(NetworkInitError::NodeId),
+            };
+        }
+    }
+    for server in config.server.iter() {
+        let node = nodes[&server.id];
+        for neighbor_id in server.connected_drone_ids.iter() {
+            if server.id == *neighbor_id {
+                return Err(NetworkInitError::SelfLoop);
+            }
+            match nodes.get(neighbor_id) {
+                Some(&neighbor) => {
+                    if neighbor.ty != NodeType::Drone {
+                        return Err(NetworkInitError::Edge);
+                    } else {
+                        graph.add_edge(node, neighbor, ());
+                    }
+                }
+                None => return Err(NetworkInitError::NodeId),
+            };
+        }
+    }
+
+    if graph.is_directed() {
+        Err(NetworkInitError::Directed)
+    } else {
+        Ok(graph.into())
+    }
 }
 
 fn init_drones(

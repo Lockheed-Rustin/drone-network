@@ -1,5 +1,6 @@
 use crate::ClientCommand;
 use crossbeam_channel::{Receiver, Sender};
+use dn_topology::Topology;
 use std::{collections::HashMap, thread::JoinHandle};
 use wg_2024::{
     controller::{DroneCommand, NodeEvent},
@@ -12,6 +13,8 @@ pub struct SimulationController {
     pub server_ids: Vec<NodeId>,
 
     pub node_recv: Receiver<NodeEvent>,
+
+    pub topology: Topology,
 
     pub handles: Vec<JoinHandle<()>>,
 }
