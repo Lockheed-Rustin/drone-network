@@ -1,7 +1,7 @@
 use crate::ClientCommand;
 use crossbeam_channel::{Receiver, Sender};
 use dn_topology::Topology;
-use std::{collections::HashMap, thread::JoinHandle};
+use std::collections::HashMap;
 use wg_2024::{
     controller::{DroneCommand, NodeEvent},
     network::NodeId,
@@ -16,7 +16,7 @@ pub struct SimulationController {
 
     pub topology: Topology,
 
-    pub handles: Vec<JoinHandle<()>>,
+    pub pool: rayon::ThreadPool,
 }
 
 impl SimulationController {
