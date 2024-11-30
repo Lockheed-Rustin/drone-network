@@ -5,10 +5,7 @@ use dn_server::Server;
 use dn_topology::{Node, Topology};
 use drone::LockheedRustin;
 use petgraph::prelude::UnGraphMap;
-use std::{
-    collections::HashMap,
-    thread::{self, JoinHandle},
-};
+use std::collections::HashMap;
 use wg_2024::{
     config,
     controller::{DroneCommand, NodeEvent},
@@ -39,7 +36,6 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     let topology = build_topology(config)?;
 
     let (node_send, node_recv) = unbounded();
-    let mut handles = Vec::new();
 
     let mut packets = HashMap::new();
     for drone in config.drone.iter() {
@@ -52,9 +48,10 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         packets.insert(server.id, unbounded());
     }
 
-    let drones_send = init_drones(config, &packets, node_send.clone(), &mut handles);
-    let clients_send = init_clients(config, &packets, node_send.clone(), &mut handles);
-    let server_ids = init_servers(config, &packets, node_send.clone(), &mut handles);
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let drones_send = init_drones(config, &packets, node_send.clone(), &pool);
+    let clients_send = init_clients(config, &packets, node_send.clone(), &pool);
+    let server_ids = init_servers(config, &packets, node_send.clone(), &pool);
 
     Ok(SimulationController {
         drones_send,
@@ -62,7 +59,7 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         server_ids,
         node_recv,
         topology,
-        handles,
+        pool,
     })
 }
 
@@ -164,7 +161,7 @@ fn init_drones(
     config: &config::Config,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
     controller_send: Sender<NodeEvent>,
-    handles: &mut Vec<JoinHandle<()>>,
+    pool: &rayon::ThreadPool,
 ) -> HashMap<NodeId, Sender<DroneCommand>> {
     let mut drones_send = HashMap::new();
     for drone in config.drone.iter() {
@@ -189,9 +186,9 @@ fn init_drones(
             packet_recv,
             pdr: drone.pdr,
         };
-        handles.push(thread::spawn(move || {
+        pool.spawn(move || {
             LockheedRustin::new(opt).run();
-        }));
+        });
     }
     drones_send
 }
@@ -200,7 +197,7 @@ fn init_clients(
     config: &config::Config,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
     controller_send: Sender<NodeEvent>,
-    handles: &mut Vec<JoinHandle<()>>,
+    pool: &rayon::ThreadPool,
 ) -> HashMap<NodeId, Sender<ClientCommand>> {
     let mut clients_send = HashMap::new();
     for client in config.client.iter() {
@@ -217,7 +214,7 @@ fn init_clients(
             .map(|id| (id, packets[&id].0.clone()))
             .collect();
 
-        handles.push(thread::spawn(move || {
+        pool.spawn(move || {
             Client {
                 controller_send,
                 controller_recv,
@@ -225,7 +222,7 @@ fn init_clients(
                 packet_recv,
             }
             .run();
-        }));
+        });
     }
     clients_send
 }
@@ -234,7 +231,7 @@ fn init_servers(
     config: &config::Config,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
     controller_send: Sender<NodeEvent>,
-    handles: &mut Vec<JoinHandle<()>>,
+    pool: &rayon::ThreadPool,
 ) -> Vec<NodeId> {
     let mut server_ids = Vec::new();
     for server in config.server.iter() {
@@ -250,14 +247,14 @@ fn init_servers(
             .map(|id| (id, packets[&id].0.clone()))
             .collect();
 
-        handles.push(thread::spawn(move || {
+        pool.spawn(move || {
             Server {
                 controller_send,
                 packet_send,
                 packet_recv,
             }
             .run();
-        }));
+        });
     }
     server_ids
 }

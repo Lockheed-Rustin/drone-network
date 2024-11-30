@@ -12,3 +12,4 @@ dn_client = { path = "../dn_client" }
 dn_server = { path = "../dn_server" }
 dn_topology = { path = "../dn_topology" }
 petgraph = "0.6.5"
+rayon = "1.10.0"
