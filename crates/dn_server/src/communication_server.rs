@@ -7,9 +7,10 @@ use dn_message::{
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::controller::NodeEvent;
-use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::network::{NodeId};
 use wg_2024::packet::Fragment;
 use wg_2024::packet::{Packet, PacketType};
+use wg_2024::packet::FRAGMENT_DSIZE as MAX_FRAGMENT_SIZE;
 
 pub struct CommunicationServer {
     pub controller_send: Sender<NodeEvent>,
@@ -124,11 +125,6 @@ impl CommunicationServer {
     }
 }
 
-// The code below is just an example of what an Assembler might look like
-
-// TODO!: check if the protocol changed
-const MAX_FRAGMENT_SIZE: usize = 80; // size defined in the protocol
-
 pub struct Assembler {
     in_progress_messages: HashMap<(NodeId, u64), MessageBuffer>,
 }
@@ -192,7 +188,7 @@ impl Assembler {
     }
 }
 
-pub struct MessageBuffer { // TODO: fa' vedere a Carbon
+pub struct MessageBuffer {
     fragments: Vec<u8>,
     total_fragments: u64,
     received_indices: HashSet<u64>,
