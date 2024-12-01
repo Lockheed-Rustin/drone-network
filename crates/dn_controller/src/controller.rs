@@ -28,7 +28,7 @@ impl SimulationController {
         sender.send(DroneCommand::Crash).map_err(|e| e.to_string())
     }
 
-    pub fn set_pdr(&self, drone_id: NodeId, new_pdr: f32) -> Result((), String) {
+    pub fn set_pdr(&self, drone_id: NodeId, new_pdr: f32) -> Result<(), String> {
         let sender = self.get_drone_sender(drone_id)?;
         sender
             .send(DroneCommand::SetPacketDropRate(new_pdr))
@@ -44,7 +44,7 @@ impl SimulationController {
     }
 
     // Node commands
-    pub fn add_link(&self, node_1: NodeId, node_2: NodeId) -> Result((), String) {
+    pub fn add_link(&self, node_1: NodeId, node_2: NodeId) -> Result<(), String> {
         // TODO: call add_sender twice
         unimplemented!()
     }
@@ -54,7 +54,7 @@ impl SimulationController {
         target_node_id: NodeId,
         destination_node_id: NodeId,
         sender: Sender<Packet>,
-    ) -> Result((), String) {
+    ) -> Result<(), String> {
         unimplemented!()
     }
 
