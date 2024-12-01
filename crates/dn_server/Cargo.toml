@@ -7,3 +7,4 @@ edition = "2021"
 crossbeam-channel = "0.5.13"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 dn_controller = { path = "../dn_controller" }
+dn_message = { path = "../dn_message" }
