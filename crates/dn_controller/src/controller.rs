@@ -1,5 +1,5 @@
-use crate::ClientCommand;
-use crossbeam_channel::{Receiver, SendError, Sender};
+use crate::{ClientCommand, ServerCommand};
+use crossbeam_channel::{Receiver, Sender};
 use dn_topology::Topology;
 use std::collections::HashMap;
 use wg_2024::packet::Packet;
@@ -8,11 +8,33 @@ use wg_2024::{
     network::NodeId,
 };
 
-pub struct SimulationController {
-    pub drones_send: HashMap<NodeId, Sender<DroneCommand>>,
-    pub clients_send: HashMap<NodeId, Sender<ClientCommand>>,
-    pub server_ids: Vec<NodeId>,
+#[derive(Clone)]
+pub enum NodeSender {
+    Drone(Sender<DroneCommand>, Sender<Packet>),
+    Client(Sender<ClientCommand>, Sender<Packet>),
+    Server(Sender<ServerCommand>, Sender<Packet>),
+}
 
+impl NodeSender {
+    fn get_packet_sender(&self) -> Sender<Packet> {
+        match self {
+            NodeSender::Drone(_, ps) => ps.clone(),
+            NodeSender::Client(_, ps) => ps.clone(),
+            NodeSender::Server(_, ps) => ps.clone(),
+        }
+    }
+
+    fn add_sender(&self, id: NodeId, sender: Sender<Packet>) -> Option<()> {
+        match self {
+            NodeSender::Drone(cs, _) => cs.send(DroneCommand::AddSender(id, sender)).ok(),
+            NodeSender::Client(cs, _) => cs.send(ClientCommand::AddSender(id, sender)).ok(),
+            NodeSender::Server(cs, _) => cs.send(ServerCommand::AddSender(id, sender)).ok(),
+        }
+    }
+}
+
+pub struct SimulationController {
+    pub node_senders: HashMap<NodeId, NodeSender>,
     pub node_recv: Receiver<NodeEvent>,
 
     pub topology: Topology,
@@ -21,42 +43,32 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
-
-    // Drone commands
-    pub fn crash_drone(&self, drone_id: NodeId) -> Result<(), String> {
-        let sender = self.get_drone_sender(drone_id)?;
-        sender.send(DroneCommand::Crash).map_err(|e| e.to_string())
+    pub fn crash_drone(&self, id: NodeId) -> Option<()> {
+        let sender = self.get_drone_sender(id)?.0;
+        sender.send(DroneCommand::Crash).ok()
     }
 
-    pub fn set_pdr(&self, drone_id: NodeId, new_pdr: f32) -> Result<(), String> {
-        let sender = self.get_drone_sender(drone_id)?;
-        sender
-            .send(DroneCommand::SetPacketDropRate(new_pdr))
-            .map_err(|e| e.to_string())
+    pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
+        let pdr = pdr.clamp(0.0, 1.0);
+        let sender = self.get_drone_sender(id)?.0;
+        sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
     }
 
-    fn get_drone_sender(&self, drone_id: NodeId) -> Result<&Sender<DroneCommand>, String> {
-        let get_result = self.drones_send.get(&drone_id);
-        match get_result {
-            None => Err(format!("Error: Drone #{} not found", drone_id)),
-            Some(sender) => Ok(sender),
+    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
+        self.node_senders.get(&id).cloned()
+    }
+
+    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
+        match self.get_sender(id)? {
+            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
+            _ => None,
         }
     }
 
-    // Node commands
-    pub fn add_link(&self, node_1: NodeId, node_2: NodeId) -> Result<(), String> {
-        // TODO: call add_sender twice
-        unimplemented!()
+    pub fn add_edge(&self, a: NodeId, b: NodeId) -> Option<()> {
+        let a_sender = self.get_sender(a)?;
+        let b_sender = self.get_sender(b)?;
+        a_sender.add_sender(b, b_sender.get_packet_sender())?;
+        b_sender.add_sender(a, a_sender.get_packet_sender())
     }
-
-    fn add_sender(
-        &self,
-        target_node_id: NodeId,
-        destination_node_id: NodeId,
-        sender: Sender<Packet>,
-    ) -> Result<(), String> {
-        unimplemented!()
-    }
-
-
 }

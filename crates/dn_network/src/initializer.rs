@@ -1,6 +1,6 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
-use dn_controller::{ClientCommand, SimulationController};
+use dn_controller::{NodeSender, SimulationController};
 use dn_server::Server;
 use dn_topology::{Node, Topology};
 use drone::LockheedRustin;
@@ -8,7 +8,7 @@ use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
 use wg_2024::{
     config,
-    controller::{DroneCommand, NodeEvent},
+    controller::NodeEvent,
     drone::{Drone, DroneOptions},
     network::NodeId,
     packet::{NodeType, Packet},
@@ -32,8 +32,16 @@ pub enum NetworkInitError {
     Directed,
 }
 
+struct InitOption<'a> {
+    config: &'a config::Config,
+    packets: HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
+    node_send: Sender<NodeEvent>,
+    node_senders: HashMap<NodeId, NodeSender>,
+    pool: rayon::ThreadPool,
+}
+
 pub fn init_network(config: &config::Config) -> Result<SimulationController, NetworkInitError> {
-    let topology = build_topology(config)?;
+    let topology = init_topology(config)?;
 
     let (node_send, node_recv) = unbounded();
 
@@ -49,21 +57,112 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     }
 
     let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
-    let drones_send = init_drones(config, &packets, node_send.clone(), &pool);
-    let clients_send = init_clients(config, &packets, node_send.clone(), &pool);
-    let server_ids = init_servers(config, &packets, node_send.clone(), &pool);
+
+    let mut opt = InitOption {
+        config,
+        packets,
+        node_send,
+        node_senders: HashMap::new(),
+        pool,
+    };
+    init_drones(&mut opt);
+    init_clients(&mut opt);
+    init_servers(&mut opt);
 
     Ok(SimulationController {
-        drones_send,
-        clients_send,
-        server_ids,
+        node_senders: opt.node_senders,
         node_recv,
         topology,
-        pool,
+        pool: opt.pool,
     })
 }
 
-pub fn build_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
+fn get_packet_send(opt: &mut InitOption, node_ids: &[NodeId]) -> HashMap<NodeId, Sender<Packet>> {
+    node_ids
+        .iter()
+        .cloned()
+        .map(|id| (id, opt.packets[&id].0.clone()))
+        .collect()
+}
+
+fn init_drones(opt: &mut InitOption) {
+    for drone in opt.config.drone.iter() {
+        // controller
+        let (drone_send, controller_recv) = unbounded();
+        opt.node_senders.insert(
+            drone.id,
+            NodeSender::Drone(drone_send, opt.packets[&drone.id].0.clone()),
+        );
+        let controller_send = opt.node_send.clone();
+        // packet
+        let packet_recv = opt.packets[&drone.id].1.clone();
+        let packet_send = get_packet_send(opt, &drone.connected_node_ids);
+
+        let drone_opt = DroneOptions {
+            id: drone.id,
+            controller_send,
+            controller_recv,
+            packet_send,
+            packet_recv,
+            pdr: drone.pdr,
+        };
+        opt.pool.spawn(move || {
+            LockheedRustin::new(drone_opt).run();
+        });
+    }
+}
+
+fn init_clients(opt: &mut InitOption) {
+    for client in opt.config.client.iter() {
+        // controller
+        let (client_send, controller_recv) = unbounded();
+        opt.node_senders.insert(
+            client.id,
+            NodeSender::Client(client_send, opt.packets[&client.id].0.clone()),
+        );
+        let controller_send = opt.node_send.clone();
+        // packet
+        let packet_recv = opt.packets[&client.id].1.clone();
+        let packet_send = get_packet_send(opt, &client.connected_drone_ids);
+
+        opt.pool.spawn(move || {
+            Client {
+                controller_send,
+                controller_recv,
+                packet_send,
+                packet_recv,
+            }
+            .run();
+        });
+    }
+}
+
+fn init_servers(opt: &mut InitOption) {
+    for server in opt.config.server.iter() {
+        // controller
+        let (server_send, controller_recv) = unbounded();
+        opt.node_senders.insert(
+            server.id,
+            NodeSender::Server(server_send, opt.packets[&server.id].0.clone()),
+        );
+        let controller_send = opt.node_send.clone();
+        // packet
+        let packet_recv = opt.packets[&server.id].1.clone();
+        let packet_send = get_packet_send(opt, &server.connected_drone_ids);
+
+        opt.pool.spawn(move || {
+            Server {
+                controller_send,
+                controller_recv,
+                packet_send,
+                packet_recv,
+            }
+            .run();
+        });
+    }
+}
+
+pub fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
     let mut graph = UnGraphMap::new();
     let mut nodes = HashMap::new();
 
@@ -155,106 +254,4 @@ pub fn build_topology(config: &config::Config) -> Result<Topology, NetworkInitEr
     } else {
         Ok(graph.into())
     }
-}
-
-fn init_drones(
-    config: &config::Config,
-    packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<NodeEvent>,
-    pool: &rayon::ThreadPool,
-) -> HashMap<NodeId, Sender<DroneCommand>> {
-    let mut drones_send = HashMap::new();
-    for drone in config.drone.iter() {
-        // controller
-        let (drone_send, controller_recv) = unbounded();
-        drones_send.insert(drone.id, drone_send);
-        let controller_send = controller_send.clone();
-        // packet
-        let packet_recv = packets[&drone.id].1.clone();
-        let packet_send = drone
-            .connected_node_ids
-            .iter()
-            .cloned()
-            .map(|id| (id, packets[&id].0.clone()))
-            .collect();
-
-        let opt = DroneOptions {
-            id: drone.id,
-            controller_send,
-            controller_recv,
-            packet_send,
-            packet_recv,
-            pdr: drone.pdr,
-        };
-        pool.spawn(move || {
-            LockheedRustin::new(opt).run();
-        });
-    }
-    drones_send
-}
-
-fn init_clients(
-    config: &config::Config,
-    packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<NodeEvent>,
-    pool: &rayon::ThreadPool,
-) -> HashMap<NodeId, Sender<ClientCommand>> {
-    let mut clients_send = HashMap::new();
-    for client in config.client.iter() {
-        // controller
-        let (client_send, controller_recv) = unbounded();
-        clients_send.insert(client.id, client_send);
-        let controller_send = controller_send.clone();
-        // packet
-        let packet_recv = packets[&client.id].1.clone();
-        let packet_send = client
-            .connected_drone_ids
-            .iter()
-            .cloned()
-            .map(|id| (id, packets[&id].0.clone()))
-            .collect();
-
-        pool.spawn(move || {
-            Client {
-                controller_send,
-                controller_recv,
-                packet_send,
-                packet_recv,
-            }
-            .run();
-        });
-    }
-    clients_send
-}
-
-fn init_servers(
-    config: &config::Config,
-    packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<NodeEvent>,
-    pool: &rayon::ThreadPool,
-) -> Vec<NodeId> {
-    let mut server_ids = Vec::new();
-    for server in config.server.iter() {
-        // controller
-        server_ids.push(server.id);
-        let controller_send = controller_send.clone();
-        // packet
-        let packet_recv = packets[&server.id].1.clone();
-        let packet_send = server
-            .connected_drone_ids
-            .iter()
-            .cloned()
-            .map(|id| (id, packets[&id].0.clone()))
-            .collect();
-
-        pool.spawn(move || {
-            Server {
-                controller_send,
-                packet_send,
-                packet_recv,
-            }
-            .run();
-        });
-    }
-    server_ids
 }
