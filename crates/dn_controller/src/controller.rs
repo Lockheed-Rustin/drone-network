@@ -56,11 +56,11 @@ impl SimulationController {
         sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
     }
 
-    pub fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
+    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
         self.node_senders.get(&id).cloned()
     }
 
-    pub fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
+    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
         match self.get_sender(id)? {
             NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
             _ => None,
@@ -72,5 +72,44 @@ impl SimulationController {
         let b_sender = self.get_sender(b)?;
         a_sender.add_sender(b, b_sender.get_packet_sender())?;
         b_sender.add_sender(a, a_sender.get_packet_sender())
+    }
+
+    pub fn get_drone_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Drone(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
+    }
+
+    pub fn get_client_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Client(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
+    }
+
+    pub fn get_server_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Server(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
     }
 }
