@@ -43,9 +43,11 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
-    pub fn crash_drone(&self, id: NodeId) -> Option<()> {
+    pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
         let sender = self.get_drone_sender(id)?.0;
-        sender.send(DroneCommand::Crash).ok()
+        sender.send(DroneCommand::Crash).ok()?;
+        self.node_senders.remove(&id);
+        Some(())
     }
 
     pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
@@ -54,11 +56,11 @@ impl SimulationController {
         sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
     }
 
-    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
+    pub fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
         self.node_senders.get(&id).cloned()
     }
 
-    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
+    pub fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
         match self.get_sender(id)? {
             NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
             _ => None,
