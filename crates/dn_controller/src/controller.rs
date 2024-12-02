@@ -43,6 +43,20 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
+    pub fn new(
+        node_senders: HashMap<NodeId, NodeSender>,
+        node_recv: Receiver<NodeEvent>,
+        topology: Topology,
+        pool: rayon::ThreadPool,
+    ) -> Self {
+        Self {
+            node_senders,
+            node_recv,
+            topology,
+            pool,
+        }
+    }
+
     pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
         let sender = self.get_drone_sender(id)?.0;
         sender.send(DroneCommand::Crash).ok()?;

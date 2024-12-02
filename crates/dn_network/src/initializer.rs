@@ -69,12 +69,12 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     init_clients(&mut opt);
     init_servers(&mut opt);
 
-    Ok(SimulationController {
-        node_senders: opt.node_senders,
+    Ok(SimulationController::new(
+        opt.node_senders,
         node_recv,
         topology,
-        pool: opt.pool,
-    })
+        opt.pool,
+    ))
 }
 
 fn get_packet_send(opt: &mut InitOption, node_ids: &[NodeId]) -> HashMap<NodeId, Sender<Packet>> {
