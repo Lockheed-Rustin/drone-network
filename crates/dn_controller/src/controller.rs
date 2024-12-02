@@ -34,12 +34,12 @@ impl NodeSender {
 }
 
 pub struct SimulationController {
-    pub node_senders: HashMap<NodeId, NodeSender>,
-    pub node_recv: Receiver<NodeEvent>,
+    node_senders: HashMap<NodeId, NodeSender>,
+    node_recv: Receiver<NodeEvent>,
 
     pub topology: Topology,
 
-    pub pool: rayon::ThreadPool,
+    pool: rayon::ThreadPool,
 }
 
 impl SimulationController {
@@ -65,6 +65,10 @@ impl SimulationController {
             NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
             _ => None,
         }
+    }
+
+    fn get_receiver(&self) -> Receiver<NodeEvent> {
+        self.node_recv.clone()
     }
 
     pub fn add_edge(&self, a: NodeId, b: NodeId) -> Option<()> {
