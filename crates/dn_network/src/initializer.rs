@@ -8,7 +8,7 @@ use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
 use wg_2024::{
     config,
-    controller::NodeEvent,
+    controller::DroneEvent,
     drone::{Drone},
     network::NodeId,
     packet::{NodeType, Packet},
@@ -35,7 +35,7 @@ pub enum NetworkInitError {
 struct InitOption<'a> {
     config: &'a config::Config,
     packets: HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    node_send: Sender<NodeEvent>,
+    node_send: Sender<DroneEvent>,
     node_senders: HashMap<NodeId, NodeSender>,
     pool: rayon::ThreadPool,
 }
@@ -128,7 +128,7 @@ fn init_clients(opt: &mut InitOption) {
 
         opt.pool.spawn(move || {
             Client {
-                controller_send,
+                // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
@@ -153,7 +153,7 @@ fn init_servers(opt: &mut InitOption) {
 
         opt.pool.spawn(move || {
             Server {
-                controller_send,
+                // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,

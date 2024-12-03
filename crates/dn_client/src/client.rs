@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::Duration;
 
-use wg_2024::{controller::NodeEvent, network::NodeId, packet::Packet};
+use wg_2024::{network::NodeId, packet::Packet};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Fragment, PacketType};
 
 pub struct Client {
-    pub controller_send: Sender<NodeEvent>,
+    // TODO: create ClientEvent
+    // pub controller_send: Sender<NodeEvent>,
     pub controller_recv: Receiver<ClientCommand>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,

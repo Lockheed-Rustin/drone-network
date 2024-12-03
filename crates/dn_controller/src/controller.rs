@@ -4,7 +4,7 @@ use dn_topology::Topology;
 use std::collections::HashMap;
 use wg_2024::packet::Packet;
 use wg_2024::{
-    controller::{DroneCommand, NodeEvent},
+    controller::{DroneCommand, DroneEvent},
     network::NodeId,
 };
 
@@ -35,7 +35,8 @@ impl NodeSender {
 
 pub struct SimulationController {
     node_senders: HashMap<NodeId, NodeSender>,
-    node_recv: Receiver<NodeEvent>,
+    node_recv: Receiver<DroneEvent>,
+    // TODO: add receivers for ClientEvent and ServerEvent
 
     pub topology: Topology,
 
@@ -45,7 +46,7 @@ pub struct SimulationController {
 impl SimulationController {
     pub fn new(
         node_senders: HashMap<NodeId, NodeSender>,
-        node_recv: Receiver<NodeEvent>,
+        node_recv: Receiver<DroneEvent>,
         topology: Topology,
         pool: rayon::ThreadPool,
     ) -> Self {
@@ -81,7 +82,8 @@ impl SimulationController {
         }
     }
 
-    pub fn get_receiver(&self) -> Receiver<NodeEvent> {
+    // TODO: add functions for getting receivers of ClientEvent and ServerEvent
+    pub fn get_receiver(&self) -> Receiver<DroneEvent> {
         self.node_recv.clone()
     }
 

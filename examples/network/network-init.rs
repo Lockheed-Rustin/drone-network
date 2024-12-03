@@ -6,4 +6,6 @@ fn main() {
     let config = toml::from_str(&file_str).unwrap();
     let controller = network::init_network(&config).unwrap();
     println!("{:#?}", controller.topology);
+    // let the threads live
+    loop{}
 }
