@@ -97,15 +97,17 @@ fn init_drones(opt: &mut InitOption) {
         // packet
         let packet_recv = opt.packets[&drone.id].1.clone();
         let packet_send = get_packet_send(opt, &drone.connected_node_ids);
+        let drone_id = drone.id;
+        let drone_pdr = drone.pdr;
 
         opt.pool.spawn(move || {
             LockheedRustin::new(
-                drone.id,
+                drone_id,
                 controller_send,
                 controller_recv,
                 packet_recv,
                 packet_send,
-                drone.pdr
+                drone_pdr,
             ).run();
         });
     }
