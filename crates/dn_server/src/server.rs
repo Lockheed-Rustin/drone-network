@@ -11,5 +11,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn run(&mut self) {}
+    pub fn run(&mut self) {
+        loop {
+            if let Ok(packet) = self.packet_recv.recv() {
+                println!("packet received by server");
+            } else {
+                break;
+            }
+        }
+    }
 }
