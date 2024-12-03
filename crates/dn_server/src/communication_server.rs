@@ -1,13 +1,15 @@
 use crossbeam_channel::{Receiver, Sender};
 use dn_controller::ServerCommand;
-use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody, ServerBody};
+use dn_message::{
+    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody, ServerBody,
+};
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::controller::NodeEvent;
-use wg_2024::network::{NodeId};
+use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
-use wg_2024::packet::{Packet, PacketType};
 use wg_2024::packet::FRAGMENT_DSIZE as MAX_FRAGMENT_SIZE;
+use wg_2024::packet::{Packet, PacketType};
 
 pub struct CommunicationServer {
     pub controller_send: Sender<NodeEvent>,
@@ -73,7 +75,7 @@ impl CommunicationServer {
                         ClientCommunicationBody::ReqClientList => {
                             self.registered_clients_list(routing_header.hops[0]);
                         }
-                    }
+                    },
                     ClientBody::ClientContent(client_content) => {} // ignoring messages for the content erver
                 }
             }
@@ -166,7 +168,7 @@ impl Assembler {
                 fragment_index: i as u64,
                 total_n_fragments: total_fragments,
                 length: chunk.len() as u8,
-                data
+                data,
             };
 
             fragments.push(fragment);
@@ -207,7 +209,6 @@ impl MessageBuffer {
 
         self.fragments[start_index..end_index]
             .copy_from_slice(&fragment.data[..fragment.length as usize]);
-
     }
 
     pub fn is_complete(&self) -> bool {
