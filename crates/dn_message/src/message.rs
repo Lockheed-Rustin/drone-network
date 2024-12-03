@@ -36,13 +36,13 @@ pub enum ClientBody {
 pub enum ClientContentBody {
     ReqFilesList,
     ReqFile(String),
-    ReqClientList,
 }
 
 #[derive(Debug, Clone)]
 pub enum ClientCommunicationBody {
     ReqRegistrationToChat,
     MessageSend(CommunicationMessage),
+    ReqClientList,
 }
 
 #[derive(Debug, Clone)]
