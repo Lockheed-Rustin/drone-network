@@ -1,9 +1,6 @@
 use crossbeam_channel::{Receiver, Sender};
 use dn_controller::ServerCommand;
-use dn_message::{
-    ClientBody, ClientCommunicationBody, ClientContentBody, CommunicationMessage, Message,
-    MessageBody, ServerBody,
-};
+use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody, ServerBody};
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::controller::NodeEvent;
@@ -66,15 +63,6 @@ impl CommunicationServer {
                     ClientBody::ReqServerType => {
                         self.send_server_type(routing_header.hops[0]);
                     }
-                    ClientBody::ClientContent(client_content) => {
-                        match client_content {
-                            ClientContentBody::ReqFilesList => {} // ignored
-                            ClientContentBody::ReqFile(_) => {}   // ignored
-                            ClientContentBody::ReqClientList => {
-                                self.registered_clients_list(routing_header.hops[0]);
-                            } // TODO!: why in the ClientContentBody?
-                        }
-                    }
                     ClientBody::ClientCommunication(comm_body) => match comm_body {
                         ClientCommunicationBody::ReqRegistrationToChat => {
                             self.register_client(routing_header.hops[0]);
@@ -82,7 +70,11 @@ impl CommunicationServer {
                         ClientCommunicationBody::MessageSend(comm_message) => {
                             self.forward_message(message, comm_message);
                         }
-                    },
+                        ClientCommunicationBody::ReqClientList => {
+                            self.registered_clients_list(routing_header.hops[0]);
+                        }
+                    }
+                    ClientBody::ClientContent(client_content) => {} // ignoring messages for the content erver
                 }
             }
             MessageBody::Server(_) => {} // ignoring messages received by other servers
