@@ -81,7 +81,7 @@ impl SimulationController {
         }
     }
 
-    fn get_receiver(&self) -> Receiver<NodeEvent> {
+    pub fn get_receiver(&self) -> Receiver<NodeEvent> {
         self.node_recv.clone()
     }
 
