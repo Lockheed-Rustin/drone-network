@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use wg_2024::{
     config,
     controller::NodeEvent,
-    drone::{Drone, DroneOptions},
+    drone::{Drone},
     network::NodeId,
     packet::{NodeType, Packet},
 };
@@ -97,17 +97,18 @@ fn init_drones(opt: &mut InitOption) {
         // packet
         let packet_recv = opt.packets[&drone.id].1.clone();
         let packet_send = get_packet_send(opt, &drone.connected_node_ids);
+        let drone_id = drone.id;
+        let drone_pdr = drone.pdr;
 
-        let drone_opt = DroneOptions {
-            id: drone.id,
-            controller_send,
-            controller_recv,
-            packet_send,
-            packet_recv,
-            pdr: drone.pdr,
-        };
         opt.pool.spawn(move || {
-            LockheedRustin::new(drone_opt).run();
+            LockheedRustin::new(
+                drone_id,
+                controller_send,
+                controller_recv,
+                packet_recv,
+                packet_send,
+                drone_pdr,
+            ).run();
         });
     }
 }
