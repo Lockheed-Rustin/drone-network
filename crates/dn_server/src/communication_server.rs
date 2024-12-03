@@ -48,7 +48,7 @@ impl CommunicationServer {
             }
         }
     }
-
+    
     // send packets to the assembler, then pass the message to handle_message
     fn handle_packet(&mut self, packet: Packet) {
         if let Some(message) = self.assembler.handle_packet(packet) {
@@ -93,8 +93,8 @@ impl CommunicationServer {
         // update_network_topology and then find a path to send the message
         unimplemented!()
     }
-
-    fn update_network_topology(&mut self) {
+    
+    fn update_network_topology(&mut self){
         // follow network discovery protocol
         // update the topology of the network
         unimplemented!()
@@ -125,7 +125,6 @@ impl CommunicationServer {
 }
 
 // The code below is just an example of what an Assembler might look like
-
 // TODO!: check if the protocol changed
 const MAX_FRAGMENT_SIZE: usize = 80; // size defined in the protocol
 
@@ -139,6 +138,7 @@ impl Assembler {
             in_progress_messages: HashMap::new(),
         }
     }
+
 
     pub fn handle_packet(&mut self, packet: Packet) -> Option<Message> {
         match packet.pack_type {
