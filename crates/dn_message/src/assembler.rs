@@ -18,27 +18,21 @@ impl Assembler {
         }
     }
 
-    pub fn handle_packet(&mut self, packet: Packet) -> Option<Message> {
-        match packet.pack_type {
-            PacketType::MsgFragment(fragment) => {
-                let session_id = packet.session_id;
-                let buffer = self
-                    .in_progress_messages
-                    .entry((packet.routing_header.hops[0], session_id))
-                    .or_insert_with(|| MessageBuffer::new(fragment.total_n_fragments as usize));
+    pub fn handle_fragment(&mut self, fragment: Fragment, sender_id: NodeId, session_id: u64) -> Option<Message> {
+        let buffer = self
+            .in_progress_messages
+            .entry((sender_id, session_id))
+            .or_insert_with(|| MessageBuffer::new(fragment.total_n_fragments as usize));
 
-                buffer.add_fragment(fragment);
+        buffer.add_fragment(fragment);
 
-                if buffer.is_complete() {
-                    let message = buffer.to_message();
-                    self.in_progress_messages
-                        .remove(&(packet.routing_header.hops[0], session_id));
-                    Some(message)
-                } else {
-                    None
-                }
-            }
-            _ => None, // currently ignoring other type of packets
+        if buffer.is_complete() {
+            let message = buffer.to_message();
+            self.in_progress_messages
+                .remove(&(sender_id, session_id));
+            Some(message)
+        } else {
+            None
         }
     }
 
