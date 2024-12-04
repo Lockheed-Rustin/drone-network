@@ -17,27 +17,21 @@ impl Assembler {
         }
     }
 
-    pub fn handle_packet(&mut self, packet: Packet) -> Option<Message> {
-        match packet.pack_type {
-            PacketType::MsgFragment(fragment) => {
-                let session_id = packet.session_id;
-                let buffer = self
-                    .in_progress_messages
-                    .entry((packet.routing_header.hops[0], session_id))
-                    .or_insert_with(|| MessageBuffer::new(fragment.total_n_fragments as usize));
+    pub fn handle_fragment(&mut self, fragment: Fragment, sender_id: NodeId, session_id: u64) -> Option<Message> {
+        let buffer = self
+            .in_progress_messages
+            .entry((sender_id, session_id))
+            .or_insert_with(|| MessageBuffer::new(fragment.total_n_fragments as usize));
 
-                buffer.add_fragment(fragment);
+        buffer.add_fragment(fragment);
 
-                if buffer.is_complete() {
-                    let message = buffer.to_message();
-                    self.in_progress_messages
-                        .remove(&(packet.routing_header.hops[0], session_id));
-                    Some(message)
-                } else {
-                    None
-                }
-            }
-            _ => None, // ignoring other type of packets
+        if buffer.is_complete() {
+            let message = buffer.to_message();
+            self.in_progress_messages
+                .remove(&(sender_id, session_id));
+            Some(message)
+        } else {
+            None
         }
     }
 
@@ -72,14 +66,15 @@ impl Assembler {
 /// `MessageBuffer` stores a fragmented message as it is reassembled.
 /// It holds the fragments, tracks the total number of fragments, and maintains a record of the
 /// received fragment indices, ensuring proper reassembly while ignoring duplicates.
-struct MessageBuffer {
+
+pub struct MessageBuffer {
     fragments: Vec<u8>,
     total_fragments: u64,
     received_indices: HashSet<u64>,
 }
 
 impl MessageBuffer {
-    fn new(total_n_fragments: usize) -> Self {
+    pub fn new(total_n_fragments: usize) -> Self {
         MessageBuffer {
             fragments: vec![0; MAX_FRAGMENT_SIZE * total_n_fragments],
             total_fragments: total_n_fragments as u64,
@@ -87,7 +82,7 @@ impl MessageBuffer {
         }
     }
 
-    fn add_fragment(&mut self, fragment: Fragment) {
+    pub fn add_fragment(&mut self, fragment: Fragment) {
         let start_index = MAX_FRAGMENT_SIZE * fragment.fragment_index as usize;
         let end_index = start_index + fragment.length as usize;
 
@@ -101,11 +96,11 @@ impl MessageBuffer {
             .copy_from_slice(&fragment.data[..fragment.length as usize]);
     }
 
-    fn is_complete(&self) -> bool {
+    pub fn is_complete(&self) -> bool {
         self.received_indices.len() == self.total_fragments as usize
     }
 
-    fn to_message(&self) -> Message {
+    pub fn to_message(&self) -> Message {
         // TODO
         unimplemented!()
     }
