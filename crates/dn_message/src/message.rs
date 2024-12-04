@@ -1,9 +1,7 @@
-use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::network::{NodeId};
 
 #[derive(Debug, Clone)]
 pub struct Message {
-    pub routing_header: SourceRoutingHeader,
-    pub session_id: u64,
     pub body: MessageBody,
 }
 
