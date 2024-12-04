@@ -8,8 +8,8 @@ use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
 use wg_2024::{
     config,
-    controller::NodeEvent,
-    drone::{Drone, DroneOptions},
+    controller::DroneEvent,
+    drone::{Drone},
     network::NodeId,
     packet::{NodeType, Packet},
 };
@@ -35,7 +35,7 @@ pub enum NetworkInitError {
 struct InitOption<'a> {
     config: &'a config::Config,
     packets: HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    node_send: Sender<NodeEvent>,
+    node_send: Sender<DroneEvent>,
     node_senders: HashMap<NodeId, NodeSender>,
     pool: rayon::ThreadPool,
 }
@@ -69,12 +69,12 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     init_clients(&mut opt);
     init_servers(&mut opt);
 
-    Ok(SimulationController {
-        node_senders: opt.node_senders,
+    Ok(SimulationController::new(
+        opt.node_senders,
         node_recv,
         topology,
-        pool: opt.pool,
-    })
+        opt.pool,
+    ))
 }
 
 fn get_packet_send(opt: &mut InitOption, node_ids: &[NodeId]) -> HashMap<NodeId, Sender<Packet>> {
@@ -97,17 +97,18 @@ fn init_drones(opt: &mut InitOption) {
         // packet
         let packet_recv = opt.packets[&drone.id].1.clone();
         let packet_send = get_packet_send(opt, &drone.connected_node_ids);
+        let drone_id = drone.id;
+        let drone_pdr = drone.pdr;
 
-        let drone_opt = DroneOptions {
-            id: drone.id,
-            controller_send,
-            controller_recv,
-            packet_send,
-            packet_recv,
-            pdr: drone.pdr,
-        };
         opt.pool.spawn(move || {
-            LockheedRustin::new(drone_opt).run();
+            LockheedRustin::new(
+                drone_id,
+                controller_send,
+                controller_recv,
+                packet_recv,
+                packet_send,
+                drone_pdr,
+            ).run();
         });
     }
 }
@@ -127,7 +128,7 @@ fn init_clients(opt: &mut InitOption) {
 
         opt.pool.spawn(move || {
             Client {
-                controller_send,
+                // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
@@ -152,7 +153,7 @@ fn init_servers(opt: &mut InitOption) {
 
         opt.pool.spawn(move || {
             Server {
-                controller_send,
+                // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,

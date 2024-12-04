@@ -4,7 +4,7 @@ use dn_topology::Topology;
 use std::collections::HashMap;
 use wg_2024::packet::Packet;
 use wg_2024::{
-    controller::{DroneCommand, NodeEvent},
+    controller::{DroneCommand, DroneEvent},
     network::NodeId,
 };
 
@@ -34,15 +34,30 @@ impl NodeSender {
 }
 
 pub struct SimulationController {
-    pub node_senders: HashMap<NodeId, NodeSender>,
-    pub node_recv: Receiver<NodeEvent>,
+    node_senders: HashMap<NodeId, NodeSender>,
+    node_recv: Receiver<DroneEvent>,
+    // TODO: add receivers for ClientEvent and ServerEvent
 
     pub topology: Topology,
 
-    pub pool: rayon::ThreadPool,
+    pool: rayon::ThreadPool,
 }
 
 impl SimulationController {
+    pub fn new(
+        node_senders: HashMap<NodeId, NodeSender>,
+        node_recv: Receiver<DroneEvent>,
+        topology: Topology,
+        pool: rayon::ThreadPool,
+    ) -> Self {
+        Self {
+            node_senders,
+            node_recv,
+            topology,
+            pool,
+        }
+    }
+
     pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
         let sender = self.get_drone_sender(id)?.0;
         sender.send(DroneCommand::Crash).ok()?;
@@ -56,15 +71,20 @@ impl SimulationController {
         sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
     }
 
-    pub fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
+    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
         self.node_senders.get(&id).cloned()
     }
 
-    pub fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
+    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
         match self.get_sender(id)? {
             NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
             _ => None,
         }
+    }
+
+    // TODO: add functions for getting receivers of ClientEvent and ServerEvent
+    pub fn get_receiver(&self) -> Receiver<DroneEvent> {
+        self.node_recv.clone()
     }
 
     pub fn add_edge(&self, a: NodeId, b: NodeId) -> Option<()> {
@@ -72,5 +92,44 @@ impl SimulationController {
         let b_sender = self.get_sender(b)?;
         a_sender.add_sender(b, b_sender.get_packet_sender())?;
         b_sender.add_sender(a, a_sender.get_packet_sender())
+    }
+
+    pub fn get_drone_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Drone(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
+    }
+
+    pub fn get_client_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Client(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
+    }
+
+    pub fn get_server_ids(&self) -> Vec<NodeId> {
+        let mut res = vec![];
+        for (id, sender) in self.node_senders.iter() {
+            match sender {
+                NodeSender::Server(_, _) => {
+                    res.push(*id);
+                }
+                _ => {}
+            }
+        }
+        res
     }
 }
