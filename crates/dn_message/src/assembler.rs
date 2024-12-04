@@ -35,7 +35,7 @@ impl Assembler {
         }
     }
 
-    pub fn serialize_message(&self, message: Message, hops: Vec<NodeId>) -> Vec<Fragment> {
+    pub fn serialize_message(&self, message: Message) -> Vec<Fragment> {
         let message_data = self.serialize_message_data(&message);
         let total_fragments =
             ((message_data.len() + MAX_FRAGMENT_SIZE - 1) / MAX_FRAGMENT_SIZE) as u64;
