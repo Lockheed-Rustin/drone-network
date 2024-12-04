@@ -2,25 +2,28 @@ use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::ServerCommand;
 use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody,
-    ServerBody,
+    ServerBody, ServerCommunicationBody,
 };
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::PacketType::MsgFragment;
 use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
 
 // TODO: temporaneo
 enum CommunicationServerEvent {}
 
 pub struct CommunicationServer {
-    pub controller_send: Sender<CommunicationServerEvent>,
-    pub controller_recv: Receiver<ServerCommand>,
-    pub packet_send: HashMap<NodeId, Sender<Packet>>,
-    pub packet_recv: Receiver<Packet>,
+    controller_send: Sender<CommunicationServerEvent>,
+    controller_recv: Receiver<ServerCommand>,
+    packet_send: HashMap<NodeId, Sender<Packet>>,
+    packet_recv: Receiver<Packet>,
 
-    pub registered_clients: HashSet<NodeId>,
-    pub topology: Topology,
-    pub assembler: Assembler,
+    id: NodeId,
+    session_id_counter: u64,
+    registered_clients: HashSet<NodeId>,
+    topology: Topology,
+    assembler: Assembler,
 }
 
 impl CommunicationServer {
@@ -29,12 +32,15 @@ impl CommunicationServer {
         controller_recv: Receiver<ServerCommand>,
         packet_send: HashMap<NodeId, Sender<Packet>>,
         packet_recv: Receiver<Packet>,
+        id: NodeId,
     ) -> Self {
         Self {
             controller_send,
             controller_recv,
             packet_send,
             packet_recv,
+            id,
+            session_id_counter: 0,
             registered_clients: HashSet::new(),
             topology: Topology::new(),
             assembler: Assembler::new(),
@@ -50,11 +56,7 @@ impl CommunicationServer {
                     }
                 },
                 recv(self.packet_recv) -> packet => {
-                    // TODO: handling of flood requests, and nack needed
                     if let Ok(p) = packet {
-                        if let PacketType::MsgFragment(f) = p.pack_type.clone() {
-                            self.send_ack(f, p.routing_header.clone(), p.session_id);
-                        }
                         self.handle_packet(p);
                     } else {
                         break;
@@ -66,8 +68,28 @@ impl CommunicationServer {
 
     // send packets (only fragments are considered) to the assembler, then pass the message to handle_message
     fn handle_packet(&mut self, packet: Packet) {
-        if let Some(message) = self.assembler.handle_packet(packet) {
-            self.handle_message(message);
+        match packet.pack_type {
+            PacketType::MsgFragment(f) => {
+                let sender_id = packet.routing_header.hops[0];
+                if let Some(message) = self.assembler
+                    .handle_fragment(f.clone(), sender_id, packet.session_id)
+                {
+                    self.handle_message(message);
+                }
+                self.send_ack(f, packet.routing_header, packet.session_id);
+            }
+            PacketType::Nack(_) => {
+                todo!()
+            }
+            PacketType::Ack(_) => {
+                todo!()
+            }
+            PacketType::FloodRequest(_) => {
+                todo!()
+            }
+            PacketType::FloodResponse(_) => {
+                todo!()
+            }
         }
     }
 
@@ -85,7 +107,7 @@ impl CommunicationServer {
                             self.register_client(routing_header.hops[0]);
                         }
                         ClientCommunicationBody::MessageSend(comm_message) => {
-                            self.forward_message(message, comm_message);
+                            self.forward_message(comm_message);
                         }
                         ClientCommunicationBody::ReqClientList => {
                             self.registered_clients_list(routing_header.hops[0]);
@@ -99,7 +121,7 @@ impl CommunicationServer {
     }
 
     // source routing
-    fn source_routing(&self) {
+    fn source_routing(&self, to: NodeId) -> Vec<NodeId> {
         // update_network_topology and then find a path to send the message
         unimplemented!()
     }
@@ -171,18 +193,38 @@ impl CommunicationServer {
         // in that case use assembler.serialize_message
     }
 
-    fn forward_message(&mut self, message: Message, communication_message: CommunicationMessage) {
-        unimplemented!("Message forward");
-        // sue assembler.serialize_message
+    fn forward_message(&mut self, communication_message: CommunicationMessage) {
+        let hops = self.source_routing(communication_message.to);
+        let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+        let message = Message {
+            routing_header: routing_header.clone(),
+            session_id: self.session_id_counter,
+            body: MessageBody::Server(ServerBody::ServerCommunication(
+                ServerCommunicationBody::MessageReceive(communication_message),
+            )),
+        };
+
+        let fragments = self.assembler.serialize_message(message);
+
+        for fragment in fragments {
+            let packet = Packet {
+                pack_type: MsgFragment(fragment),
+                routing_header: routing_header.clone(),
+                session_id: self.session_id_counter,
+            };
+            self.send_packet(packet);
+        }
+
+        self.session_id_counter += 1;
     }
 
     fn registered_clients_list(&self, client_id: NodeId) -> Vec<NodeId> {
         unimplemented!("Send list of registered clients");
-        // sue assembler.serialize_message
+        // use assembler.serialize_message
     }
 
     fn send_server_type(&self, client_id: NodeId) {
         unimplemented!("Send server type");
-        // sue assembler.serialize_message
+        // use assembler.serialize_message
     }
 }
