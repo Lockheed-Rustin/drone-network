@@ -1,4 +1,4 @@
-use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::network::{NodeId};
 
 #[derive(Debug, Clone)]
 pub struct Message {
