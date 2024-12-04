@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
 use wg_2024::packet::FRAGMENT_DSIZE as MAX_FRAGMENT_SIZE;
-use wg_2024::packet::{Packet, PacketType};
 
 /// The `Assembler` struct is responsible for tracking and reassembling fragmented messages.
 /// Each message is identified by a unique key consisting of a `(NodeId, session_id)` pair.
@@ -60,7 +59,7 @@ impl Assembler {
     }
 
     fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
-        unimplemented!()
+        unimplemented!("serialize_message_data");
     }
 }
 

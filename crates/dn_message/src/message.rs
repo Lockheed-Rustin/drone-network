@@ -1,12 +1,7 @@
 use wg_2024::network::{NodeId};
 
 #[derive(Debug, Clone)]
-pub struct Message {
-    pub body: MessageBody,
-}
-
-#[derive(Debug, Clone)]
-pub enum MessageBody {
+pub enum Message {
     Client(ClientBody),
     Server(ServerBody),
 }
