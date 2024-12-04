@@ -1,21 +1,23 @@
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::ServerCommand;
 use dn_message::{
-    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody, ServerBody,
+    Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody,
+    ServerBody,
 };
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
-use wg_2024::controller::NodeEvent;
-use wg_2024::network::NodeId;
-use wg_2024::packet::Fragment;
-use wg_2024::packet::FRAGMENT_DSIZE as MAX_FRAGMENT_SIZE;
-use wg_2024::packet::{Packet, PacketType};
+use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
+
+// TODO: temporaneo
+enum CommunicationServerEvent {}
 
 pub struct CommunicationServer {
-    pub controller_send: Sender<NodeEvent>,
+    pub controller_send: Sender<CommunicationServerEvent>,
     pub controller_recv: Receiver<ServerCommand>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
+
     pub registered_clients: HashSet<NodeId>,
     pub topology: Topology,
     pub assembler: Assembler,
@@ -23,7 +25,7 @@ pub struct CommunicationServer {
 
 impl CommunicationServer {
     pub fn new(
-        controller_send: Sender<NodeEvent>,
+        controller_send: Sender<CommunicationServerEvent>,
         controller_recv: Receiver<ServerCommand>,
         packet_send: HashMap<NodeId, Sender<Packet>>,
         packet_recv: Receiver<Packet>,
@@ -41,15 +43,28 @@ impl CommunicationServer {
 
     pub fn run(&mut self) {
         loop {
-            if let Ok(packet) = self.packet_recv.recv() {
-                self.handle_packet(packet);
-            } else {
-                break;
+            select! {
+                recv(self.controller_recv) -> command => {
+                    if let Ok(cmd) = command {
+                        todo!(); // TODO!
+                    }
+                },
+                recv(self.packet_recv) -> packet => {
+                    // TODO: handling of flood requests, and nack needed
+                    if let Ok(p) = packet {
+                        if let PacketType::MsgFragment(f) = p.pack_type.clone() {
+                            self.send_ack(f, p.routing_header.clone(), p.session_id);
+                        }
+                        self.handle_packet(p);
+                    } else {
+                        break;
+                    }
+                }
             }
         }
     }
 
-    // send packets to the assembler, then pass the message to handle_message
+    // send packets (only fragments are considered) to the assembler, then pass the message to handle_message
     fn handle_packet(&mut self, packet: Packet) {
         if let Some(message) = self.assembler.handle_packet(packet) {
             self.handle_message(message);
@@ -95,128 +110,79 @@ impl CommunicationServer {
         unimplemented!()
     }
 
-    // possible actions:
-
     // TODO!: should ignoring wrong messages be replaced by send_error?
     fn send_error(&self, destination: NodeId, error_body: ServerBody) {
         unimplemented!("send error message?");
     }
 
+    fn send_ack(
+        &self,
+        fragment: Fragment,
+        mut sender_routing_header: SourceRoutingHeader,
+        session_id: u64,
+    ) {
+        let ack = PacketType::Ack(Ack {
+            fragment_index: fragment.fragment_index,
+        });
+        let hops = sender_routing_header
+            .hops
+            .iter()
+            .cloned()
+            .rev()
+            .collect::<Vec<NodeId>>();
+
+        let packet = Packet {
+            pack_type: ack,
+            routing_header: SourceRoutingHeader {
+                // TODO: just reverse the path or calculate a new path?
+                hop_index: 1,
+                hops,
+            },
+            session_id,
+        };
+
+        self.send_packet(packet);
+    }
+
+    fn send_packet(&self, packet: Packet) {
+        // assuming hop index already set at 1
+        // assuming the first node connected to the server exists
+        let next_hop = packet.routing_header.hops[1];
+        let sender = self.packet_send.get(&next_hop).unwrap();
+        if let Err(e) = sender.send(packet) {
+            eprintln!(
+                "Errore durante l'invio del pacchetto a {}: {:?}",
+                next_hop, e
+            );
+        }
+    }
+
+    // possible actions:
+
     fn register_client(&mut self, client_id: NodeId) {
-        unimplemented!("Register client");
+        if self.registered_clients.contains(&client_id) {
+            // already registered
+            // TODO: send an error or ignoring?
+        }
+
+        self.registered_clients.insert(client_id);
+
+        // TODO: send confirmation message or not?
+        // in that case use assembler.serialize_message
     }
 
     fn forward_message(&mut self, message: Message, communication_message: CommunicationMessage) {
         unimplemented!("Message forward");
+        // sue assembler.serialize_message
     }
 
     fn registered_clients_list(&self, client_id: NodeId) -> Vec<NodeId> {
         unimplemented!("Send list of registered clients");
+        // sue assembler.serialize_message
     }
 
     fn send_server_type(&self, client_id: NodeId) {
         unimplemented!("Send server type");
-    }
-}
-
-pub struct Assembler {
-    in_progress_messages: HashMap<(NodeId, u64), MessageBuffer>,
-}
-
-impl Assembler {
-    pub fn new() -> Self {
-        Assembler {
-            in_progress_messages: HashMap::new(),
-        }
-    }
-
-    pub fn handle_packet(&mut self, packet: Packet) -> Option<Message> {
-        match packet.pack_type {
-            PacketType::MsgFragment(fragment) => {
-                let session_id = packet.session_id;
-                let buffer = self
-                    .in_progress_messages
-                    .entry((packet.routing_header.hops[0], session_id))
-                    .or_insert_with(|| MessageBuffer::new(fragment.total_n_fragments as usize));
-
-                buffer.add_fragment(fragment);
-
-                if buffer.is_complete() {
-                    let message = buffer.to_message();
-                    self.in_progress_messages
-                        .remove(&(packet.routing_header.hops[0], session_id));
-                    Some(message)
-                } else {
-                    None
-                }
-            }
-            _ => None, // currently ignoring other type of packets
-        }
-    }
-
-    pub fn serialize_message(&self, message: Message, hops: Vec<NodeId>) -> Vec<Fragment> {
-        let message_data = self.serialize_message_data(&message);
-        let total_fragments =
-            ((message_data.len() + MAX_FRAGMENT_SIZE - 1) / MAX_FRAGMENT_SIZE) as u64;
-
-        let mut fragments = Vec::new();
-
-        for (i, chunk) in message_data.chunks(MAX_FRAGMENT_SIZE).enumerate() {
-            let mut data = [0u8; MAX_FRAGMENT_SIZE];
-            data[..chunk.len()].copy_from_slice(chunk);
-            let fragment = Fragment {
-                fragment_index: i as u64,
-                total_n_fragments: total_fragments,
-                length: chunk.len() as u8,
-                data,
-            };
-
-            fragments.push(fragment);
-        }
-
-        fragments
-    }
-
-    fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
-        unimplemented!()
-    }
-}
-
-pub struct MessageBuffer {
-    fragments: Vec<u8>,
-    total_fragments: u64,
-    received_indices: HashSet<u64>,
-}
-
-impl MessageBuffer {
-    pub fn new(total_n_fragments: usize) -> Self {
-        MessageBuffer {
-            fragments: vec![0; MAX_FRAGMENT_SIZE * total_n_fragments],
-            total_fragments: total_n_fragments as u64,
-            received_indices: HashSet::new(),
-        }
-    }
-
-    pub fn add_fragment(&mut self, fragment: Fragment) {
-        let start_index = MAX_FRAGMENT_SIZE * fragment.fragment_index as usize;
-        let end_index = start_index + fragment.length as usize;
-
-        if !self.received_indices.insert(fragment.fragment_index) {
-            return; //Ignoring duplicates: assuming the first packet had the correct data
-        }
-
-        self.total_fragments = fragment.total_n_fragments;
-
-        self.fragments[start_index..end_index]
-            .copy_from_slice(&fragment.data[..fragment.length as usize]);
-    }
-
-    pub fn is_complete(&self) -> bool {
-        self.received_indices.len() == self.total_fragments as usize
-    }
-
-    pub fn to_message(&self) -> Message {
-        // TODO
-        unimplemented!()
+        // sue assembler.serialize_message
     }
 }
