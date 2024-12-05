@@ -7,12 +7,14 @@ use dn_message::{
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, Packet, PacketType};
 
 // TODO: TEMP
 enum CommunicationServerEvent {}
 
-pub struct CommunicationServer {
+type PendingFragments = HashMap<u64, Fragment>;
+
+pub struct CommunicationServer  {
     controller_send: Sender<CommunicationServerEvent>,
     controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
@@ -23,6 +25,9 @@ pub struct CommunicationServer {
     registered_clients: HashSet<NodeId>,
     topology: Topology,
     assembler: Assembler,
+
+    pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
+
 }
 
 impl CommunicationServer {
@@ -43,6 +48,7 @@ impl CommunicationServer {
             registered_clients: HashSet::new(),
             topology: Topology::new(),
             assembler: Assembler::new(),
+            pending_sessions: HashMap::new(),
         }
     }
 
@@ -65,25 +71,16 @@ impl CommunicationServer {
         }
     }
 
-    // send packets (only fragments are considered) to the assembler, then pass the message to "handle_message"
     fn handle_packet(&mut self, packet: Packet) {
+        let sender_id = packet.routing_header.hops[0];
         match packet.pack_type {
             PacketType::MsgFragment(f) => {
-                let sender_id = packet.routing_header.hops[0];
-                self.handle_fragment(f, sender_id, packet.session_id, packet.routing_header);
+                self.handle_fragment(f, sender_id, packet.session_id, packet.routing_header)
             }
-            PacketType::Nack(_) => {
-                todo!()
-            }
-            PacketType::Ack(_) => {
-                todo!()
-            }
-            PacketType::FloodRequest(_) => {
-                todo!()
-            }
-            PacketType::FloodResponse(_) => {
-                todo!()
-            }
+            PacketType::Nack(nack) => self.handle_nack(nack),
+            PacketType::Ack(ack) => self.handle_ack(ack, &packet.session_id),
+            PacketType::FloodRequest(f_req) => self.handle_flood_request(f_req),
+            PacketType::FloodResponse(f_res) => self.handle_flood_response(f_res),
         }
     }
 
@@ -103,7 +100,33 @@ impl CommunicationServer {
         self.send_ack(f, routing_header, session_id);
     }
 
-    // given a message finds out what function to call
+    fn handle_ack(&mut self, ack: Ack, session_id: &u64) {
+        if let Some(fragment_map) = self.pending_sessions.get_mut(session_id) {
+            fragment_map.remove(&ack.fragment_index);
+            if fragment_map.is_empty() {
+                self.pending_sessions.remove(session_id);
+            }
+        }
+    }
+
+    fn handle_nack(&self, nack: Nack) {
+        match nack.nack_type {
+            // TODO!
+            NackType::ErrorInRouting(_) => { todo!() }
+            NackType::DestinationIsDrone => { todo!() }
+            NackType::Dropped => { todo!() }
+            NackType::UnexpectedRecipient(_) => { todo!() }
+        }
+    }
+
+    fn handle_flood_request(&self, request: FloodRequest) {
+        unimplemented!()
+    }
+
+    fn handle_flood_response(&self, response: FloodResponse) {
+        unimplemented!()
+    }
+
     fn handle_message(&mut self, message: Message, sender_id: NodeId) {
         match message {
             Message::Client(cb) => {
@@ -185,6 +208,23 @@ impl CommunicationServer {
         }
     }
 
+    fn send_fragments(&mut self, session_id: u64, fragments: Vec<Fragment>, routing_header: SourceRoutingHeader) {
+        let fragment_map: PendingFragments = fragments
+            .iter()
+            .map(|f| (f.fragment_index, f.clone()))
+            .collect();
+        self.pending_sessions.insert(session_id, fragment_map);
+
+        for fragment in fragments {
+            let packet = Packet {
+                pack_type: PacketType::MsgFragment(fragment),
+                routing_header: routing_header.clone(),
+                session_id,
+            };
+            self.send_packet(packet);
+        }
+    }
+
     // possible actions:
 
     fn register_client(&mut self, client_id: NodeId) {
@@ -205,18 +245,9 @@ impl CommunicationServer {
         let message: Message = Message::Server(ServerBody::ServerCommunication(
             ServerCommunicationBody::MessageReceive(communication_message),
         ));
-
         let fragments = self.assembler.serialize_message(message);
 
-        for fragment in fragments {
-            let packet = Packet {
-                pack_type: PacketType::MsgFragment(fragment),
-                routing_header: routing_header.clone(),
-                session_id: self.session_id_counter,
-            };
-            self.send_packet(packet);
-        }
-
+        self.send_fragments(self.session_id_counter, fragments, routing_header);
         self.session_id_counter += 1;
     }
 
