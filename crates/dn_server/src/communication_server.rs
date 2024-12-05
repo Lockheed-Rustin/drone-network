@@ -1,16 +1,15 @@
 use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::ServerCommand;
 use dn_message::{
-    Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, MessageBody,
-    ServerBody, ServerCommunicationBody,
+    Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
+    ServerCommunicationBody,
 };
 use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::PacketType::MsgFragment;
 use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
 
-// TODO: temporaneo
+// TODO: TEMP
 enum CommunicationServerEvent {}
 
 pub struct CommunicationServer {
@@ -66,17 +65,12 @@ impl CommunicationServer {
         }
     }
 
-    // send packets (only fragments are considered) to the assembler, then pass the message to handle_message
+    // send packets (only fragments are considered) to the assembler, then pass the message to "handle_message"
     fn handle_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(f) => {
                 let sender_id = packet.routing_header.hops[0];
-                if let Some(message) = self.assembler
-                    .handle_fragment(f.clone(), sender_id, packet.session_id)
-                {
-                    self.handle_message(message);
-                }
-                self.send_ack(f, packet.routing_header, packet.session_id);
+                self.handle_fragment(f, sender_id, packet.session_id, packet.routing_header);
             }
             PacketType::Nack(_) => {
                 todo!()
@@ -93,30 +87,45 @@ impl CommunicationServer {
         }
     }
 
+    fn handle_fragment(
+        &mut self,
+        f: Fragment,
+        sender_id: NodeId,
+        session_id: u64,
+        routing_header: SourceRoutingHeader,
+    ) {
+        if let Some(message) = self
+            .assembler
+            .handle_fragment(f.clone(), sender_id, session_id)
+        {
+            self.handle_message(message, sender_id);
+        }
+        self.send_ack(f, routing_header, session_id);
+    }
+
     // given a message finds out what function to call
-    fn handle_message(&mut self, message: Message) {
-        let routing_header = message.routing_header.clone();
-        match message.body.clone() {
-            MessageBody::Client(cb) => {
+    fn handle_message(&mut self, message: Message, sender_id: NodeId) {
+        match message {
+            Message::Client(cb) => {
                 match cb {
                     ClientBody::ReqServerType => {
-                        self.send_server_type(routing_header.hops[0]);
+                        self.send_server_type(sender_id);
                     }
                     ClientBody::ClientCommunication(comm_body) => match comm_body {
                         ClientCommunicationBody::ReqRegistrationToChat => {
-                            self.register_client(routing_header.hops[0]);
+                            self.register_client(sender_id);
                         }
                         ClientCommunicationBody::MessageSend(comm_message) => {
                             self.forward_message(comm_message);
                         }
                         ClientCommunicationBody::ReqClientList => {
-                            self.registered_clients_list(routing_header.hops[0]);
+                            self.registered_clients_list(sender_id);
                         }
                     },
-                    ClientBody::ClientContent(client_content) => {} // ignoring messages for the content erver
+                    ClientBody::ClientContent(_) => {} // ignoring messages for the content server
                 }
             }
-            MessageBody::Server(_) => {} // ignoring messages received by other servers
+            Message::Server(_) => {} // ignoring messages received by other servers
         }
     }
 
@@ -168,14 +177,11 @@ impl CommunicationServer {
 
     fn send_packet(&self, packet: Packet) {
         // assuming hop index already set at 1
-        // assuming the first node connected to the server exists
+        // assuming the first node connected to the server exists (TODO: probably to check)
         let next_hop = packet.routing_header.hops[1];
         let sender = self.packet_send.get(&next_hop).unwrap();
         if let Err(e) = sender.send(packet) {
-            eprintln!(
-                "Errore durante l'invio del pacchetto a {}: {:?}",
-                next_hop, e
-            );
+            eprintln!("Error during packet sending to {}: {:?}", next_hop, e);
         }
     }
 
@@ -196,19 +202,15 @@ impl CommunicationServer {
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
         let hops = self.source_routing(communication_message.to);
         let routing_header = SourceRoutingHeader { hop_index: 1, hops };
-        let message = Message {
-            routing_header: routing_header.clone(),
-            session_id: self.session_id_counter,
-            body: MessageBody::Server(ServerBody::ServerCommunication(
-                ServerCommunicationBody::MessageReceive(communication_message),
-            )),
-        };
+        let message: Message = Message::Server(ServerBody::ServerCommunication(
+            ServerCommunicationBody::MessageReceive(communication_message),
+        ));
 
         let fragments = self.assembler.serialize_message(message);
 
         for fragment in fragments {
             let packet = Packet {
-                pack_type: MsgFragment(fragment),
+                pack_type: PacketType::MsgFragment(fragment),
                 routing_header: routing_header.clone(),
                 session_id: self.session_id_counter,
             };
@@ -220,11 +222,11 @@ impl CommunicationServer {
 
     fn registered_clients_list(&self, client_id: NodeId) -> Vec<NodeId> {
         unimplemented!("Send list of registered clients");
-        // use assembler.serialize_message
+        // use "serialize_message"
     }
 
     fn send_server_type(&self, client_id: NodeId) {
         unimplemented!("Send server type");
-        // use assembler.serialize_message
+        // use "serialize_message"
     }
 }
