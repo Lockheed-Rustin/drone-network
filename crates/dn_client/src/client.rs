@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use wg_2024::{network::NodeId, packet::Packet};
 use wg_2024::network::SourceRoutingHeader;
-use wg_2024::packet::{Ack, Fragment, Nack, NackType, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
 
 pub struct Client {
     // TODO: create ClientEvent
@@ -18,6 +18,33 @@ pub struct Client {
 
 impl Client {
     pub fn run(&mut self) {
+        let flood_request_packet = Packet {
+            pack_type: PacketType::FloodRequest(FloodRequest {
+                flood_id: 0,
+                initiator_id: 4,
+                path_trace: vec![(4, NodeType::Client)],
+            }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![],
+            },
+            session_id: 0,
+        };
+
+        for (_, sender) in self.packet_send.iter() {
+            sender.send(flood_request_packet.clone()).expect("Error in send");
+        }
+
+        loop {
+            if let Ok(packet) = self.packet_recv.recv() {
+                self.handle_packet(packet);
+            } else {
+                break;
+            }
+        }
+
+
+        /*
         sleep(Duration::from_secs(1));
 
         let fragment = Fragment {
@@ -71,7 +98,27 @@ impl Client {
             sender.send(packet3.clone()).expect("Error in send");
             sleep(Duration::from_secs(1));
         }
+        */
     }
 
+    fn handle_packet(&mut self, packet: Packet) {
+        match packet.pack_type {
+            PacketType::MsgFragment(_) => {
+                println!("Client received fragment");
+            }
+            PacketType::Ack(ack) => {
+                println!("Client received ack\n{:?}", ack);
+            }
+            PacketType::Nack(_) => {
+                println!("Client received nack");
 
+            }
+            PacketType::FloodRequest(_) => {
+                println!("Client received flood request");
+            }
+            PacketType::FloodResponse(flood_response) => {
+                println!("Client received flood response:\n{:?}", flood_response);
+            }
+        }
+    }
 }

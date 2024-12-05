@@ -27,7 +27,7 @@ impl Server {
     fn handle_packet(&mut self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(fragment) => {
-                println!("Fragment received by server");
+                println!("Server received fragment");
                 let hops = packet.routing_header.hops.iter().cloned().rev().collect::<Vec<_>>();
 
                 let ack_packet = Packet {
@@ -45,14 +45,14 @@ impl Server {
 
             }
             PacketType::Ack(_) => {
-                println!("Ack received by server");
+                println!("Server received ack");
             }
             PacketType::Nack(_) => {
-                println!("Nack received by server");
+                println!("Server received nack");
 
             }
             PacketType::FloodRequest(flood_request) => {
-                println!("Flood request received by server");
+                println!("Server received flood request");
                 let hops = flood_request.path_trace.iter()
                     .map(|(node_id, _)| {*node_id})
                     .rev()
@@ -72,7 +72,7 @@ impl Server {
 
                 self.packet_send[&flood_response_packet.routing_header.hops[1]].send(flood_response_packet).expect("Error in send");            }
             PacketType::FloodResponse(_) => {
-                println!("Flood response received by server");
+                println!("Server received fragment");
             }
         }
     }
