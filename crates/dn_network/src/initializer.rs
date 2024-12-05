@@ -125,15 +125,16 @@ fn init_clients(opt: &mut InitOption) {
         // packet
         let packet_recv = opt.packets[&client.id].1.clone();
         let packet_send = get_packet_send(opt, &client.connected_drone_ids);
+        let id = client.id;
 
         opt.pool.spawn(move || {
-            Client {
+            Client::new(
+                id,
                 // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
-            }
-            .run();
+            ).run();
         });
     }
 }
@@ -150,15 +151,16 @@ fn init_servers(opt: &mut InitOption) {
         // packet
         let packet_recv = opt.packets[&server.id].1.clone();
         let packet_send = get_packet_send(opt, &server.connected_drone_ids);
+        let id = server.id;
 
         opt.pool.spawn(move || {
-            Server {
+            Server::new(
+                id,
                 // controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
-            }
-            .run();
+            ).run();
         });
     }
 }
