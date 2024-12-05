@@ -2,7 +2,7 @@ use crossbeam_channel::{Receiver, Sender};
 use dn_controller::ServerCommand;
 use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Packet, PacketType, Ack, FloodResponse};
+use wg_2024::packet::{Packet, PacketType, Ack, FloodResponse, NodeType};
 
 pub struct Server {
     // TODO: create ServerEvent (2 different enums for the 2 server types?)
@@ -51,10 +51,11 @@ impl Server {
                 println!("Server received nack");
 
             }
-            PacketType::FloodRequest(flood_request) => {
+            PacketType::FloodRequest(mut flood_request) => {
                 println!("Server received flood request");
+                flood_request.path_trace.push((5, NodeType::Server));
                 let hops = flood_request.path_trace.iter()
-                    .map(|(node_id, _)| {*node_id})
+                    .map(|(node_id, _)| *node_id)
                     .rev()
                     .collect();
 
