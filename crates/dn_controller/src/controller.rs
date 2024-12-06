@@ -58,31 +58,8 @@ impl SimulationController {
         }
     }
 
-    pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
-        let sender = self.get_drone_sender(id)?.0;
-        sender.send(DroneCommand::Crash).ok()?;
-        self.node_senders.remove(&id);
-        Some(())
-    }
-
-    pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
-        let pdr = pdr.clamp(0.0, 1.0);
-        let sender = self.get_drone_sender(id)?.0;
-        sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
-    }
-
-    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
-        self.node_senders.get(&id).cloned()
-    }
-
-    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
-        match self.get_sender(id)? {
-            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
-            _ => None,
-        }
-    }
-
-    // TODO: add functions for getting receivers of ClientEvent and ServerEvent
+    // General
+    // TODO: Should be generic event, or 3 different receivers
     pub fn get_receiver(&self) -> Receiver<DroneEvent> {
         self.node_recv.clone()
     }
@@ -93,6 +70,7 @@ impl SimulationController {
         a_sender.add_sender(b, b_sender.get_packet_sender())?;
         b_sender.add_sender(a, a_sender.get_packet_sender())
     }
+
 
     pub fn get_drone_ids(&self) -> Vec<NodeId> {
         let mut res = vec![];
@@ -132,4 +110,53 @@ impl SimulationController {
         }
         res
     }
+
+    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
+        self.node_senders.get(&id).cloned()
+    }
+
+    // Drones
+    pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
+        let sender = self.get_drone_sender(id)?.0;
+        sender.send(DroneCommand::Crash).ok()?;
+        self.node_senders.remove(&id);
+        Some(())
+    }
+
+    pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
+        let pdr = pdr.clamp(0.0, 1.0);
+        let sender = self.get_drone_sender(id)?.0;
+        sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
+    }
+
+    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
+        match self.get_sender(id)? {
+            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
+            _ => None,
+        }
+    }
+
+    // Clients
+
+    fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
+        let sender = self.get_client_sender(id)?.0;
+        sender.send(ClientCommand::SendFragment).ok()?;
+        Some(())
+    }
+
+    fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
+        let sender = self.get_client_sender(id)?.0;
+        sender.send(ClientCommand::SendFloodRequest).ok()?;
+        Some(())
+    }
+
+    fn get_client_sender(&self, id: NodeId) -> Option<(Sender<ClientCommand>, Sender<Packet>)> {
+        match self.get_sender(id)? {
+            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
+            _ => None,
+        }
+    }
+
+
+
 }
