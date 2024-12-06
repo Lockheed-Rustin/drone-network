@@ -41,7 +41,7 @@ impl Server {
 
     fn handle_packet(&mut self, packet: Packet) {
         self.controller_send
-            .send(ServerEvent::PacketReceived(packet.clone()))
+            .send(ServerEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
 
         match packet.pack_type {
