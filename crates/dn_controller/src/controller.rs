@@ -37,7 +37,6 @@ pub struct SimulationController {
     node_senders: HashMap<NodeId, NodeSender>,
     node_recv: Receiver<DroneEvent>,
     // TODO: add receivers for ClientEvent and ServerEvent
-
     pub topology: Topology,
 
     pool: rayon::ThreadPool,
@@ -70,7 +69,6 @@ impl SimulationController {
         a_sender.add_sender(b, b_sender.get_packet_sender())?;
         b_sender.add_sender(a, a_sender.get_packet_sender())
     }
-
 
     pub fn get_drone_ids(&self) -> Vec<NodeId> {
         let mut res = vec![];
@@ -152,11 +150,8 @@ impl SimulationController {
 
     fn get_client_sender(&self, id: NodeId) -> Option<(Sender<ClientCommand>, Sender<Packet>)> {
         match self.get_sender(id)? {
-            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
+            NodeSender::Client(ccs, ps) => Some((ccs, ps)),
             _ => None,
         }
     }
-
-
-
 }
