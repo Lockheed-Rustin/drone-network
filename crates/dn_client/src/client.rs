@@ -1,8 +1,6 @@
 use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::ClientCommand;
 use std::collections::HashMap;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
 
 use wg_2024::{network::NodeId, packet::Packet};
 use wg_2024::network::SourceRoutingHeader;
@@ -117,21 +115,44 @@ impl Client {
     fn handle_packet(&self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(_) => {
-                println!("Client received fragment");
+                println!("Client#{} received fragment", self.id);
             }
             PacketType::Ack(ack) => {
-                println!("Client received ack\n{:?}", ack);
+                println!("Client#{} received ack: {:?}", self.id, ack);
             }
-            PacketType::Nack(_) => {
-                println!("Client received nack");
+            PacketType::Nack(nack) => {
+                println!("Client#{} received nack: {:?}", self.id, nack);
 
             }
-            PacketType::FloodRequest(_) => {
-                println!("Client received flood request");
+            PacketType::FloodRequest(mut flood_request) => {
+                println!("Client#{} received flood request", self.id);
+                self.send_flood_response(packet.session_id, flood_request);
             }
             PacketType::FloodResponse(flood_response) => {
-                println!("Client received flood response:\n{:?}", flood_response);
+                println!("Client#{} received flood response: {:?}", self.id, flood_response);
             }
         }
+    }
+
+    fn send_flood_response(&self, session_id: u64, mut flood_request: FloodRequest) {
+        flood_request.path_trace.push((self.id, NodeType::Server));
+        let hops = flood_request.path_trace.iter()
+            .map(|(node_id, _)| *node_id)
+            .rev()
+            .collect();
+
+        let flood_response_packet = Packet {
+            pack_type: PacketType::FloodResponse(FloodResponse {
+                flood_id: flood_request.flood_id,
+                path_trace: flood_request.path_trace,
+            }),
+            routing_header: SourceRoutingHeader {
+                hop_index: 1,
+                hops,
+            },
+            session_id,
+        };
+
+        self.packet_send[&flood_response_packet.routing_header.hops[1]].send(flood_response_packet).expect("Error in send");
     }
 }

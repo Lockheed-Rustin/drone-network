@@ -78,7 +78,7 @@ impl Server {
     }
 
     fn send_flood_response(&self, session_id: u64, mut flood_request: FloodRequest) {
-        flood_request.path_trace.push((5, NodeType::Server));
+        flood_request.path_trace.push((self.id, NodeType::Server));
         let hops = flood_request.path_trace.iter()
             .map(|(node_id, _)| *node_id)
             .rev()
