@@ -35,53 +35,6 @@ impl Client {
     }
 
     pub fn run(&self) {
-        // //send flood request
-        // let flood_request_packet = Packet {
-        //     pack_type: PacketType::FloodRequest(FloodRequest {
-        //         flood_id: 0,
-        //         initiator_id: self.id,
-        //         path_trace: vec![(self.id, NodeType::Client)],
-        //     }),
-        //     routing_header: SourceRoutingHeader {
-        //         hop_index: 0,
-        //         hops: vec![],
-        //     },
-        //     session_id: 0,
-        // };
-        // 
-        // for (_, sender) in self.packet_send.iter() {
-        //     sender.send(flood_request_packet.clone()).expect("Error in send");
-        // }
-        // 
-        // //send other packets
-        // let sender = self.packet_send.get(&2).unwrap();
-        // let mut fragment_index = 0;
-        // let mut start_time = Instant::now();
-        // 
-        // loop {
-        //     if start_time.elapsed() >= Duration::from_secs(1) {
-        //         sender.send(Packet {
-        //             pack_type: PacketType::MsgFragment(Fragment {
-        //                 fragment_index,
-        //                 total_n_fragments: 0,
-        //                 length: 0,
-        //                 data: [0; 128],
-        //             }),
-        //             routing_header: SourceRoutingHeader {
-        //                 hop_index: 1,
-        //                 hops: vec![self.id, 2, 1, 5]
-        //             },
-        //             session_id: 0,
-        //         }).expect("Error in send");
-        // 
-        //         fragment_index += 1;
-        //         start_time = Instant::now();
-        //     }
-        //     if let Ok(packet) = self.packet_recv.try_recv() {
-        //         self.handle_packet(packet);
-        //     }
-        // }
-        
         loop {
             let mut session_id = 0;
             select! {
@@ -139,7 +92,7 @@ impl Client {
                 }
             ),
         };
-        self.packet_send.get(&6).send(packet.clone()).expect("Error in send");
+        self.packet_send.get(&6).unwrap().send(packet.clone()).expect("Error in send");
     }
 
     fn send_flood_request(&self, session_id: u64) {
