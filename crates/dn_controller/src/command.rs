@@ -21,7 +21,8 @@ pub enum ServerEvent {
 }
 
 pub enum ClientEvent {
-    PacketReceived(Packet),
+    // receiver NodeId. Required because it's not present in FloodRequest
+    PacketReceived(Packet, NodeId),
     MessageAssembled(ServerBody),
     MessageFragmented(ClientBody),
     PacketSent(Packet),
