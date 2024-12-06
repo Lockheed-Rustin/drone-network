@@ -35,10 +35,117 @@ impl Client {
     }
 
     pub fn run(&self) {
-        //send flood request
+        // //send flood request
+        // let flood_request_packet = Packet {
+        //     pack_type: PacketType::FloodRequest(FloodRequest {
+        //         flood_id: 0,
+        //         initiator_id: self.id,
+        //         path_trace: vec![(self.id, NodeType::Client)],
+        //     }),
+        //     routing_header: SourceRoutingHeader {
+        //         hop_index: 0,
+        //         hops: vec![],
+        //     },
+        //     session_id: 0,
+        // };
+        // 
+        // for (_, sender) in self.packet_send.iter() {
+        //     sender.send(flood_request_packet.clone()).expect("Error in send");
+        // }
+        // 
+        // //send other packets
+        // let sender = self.packet_send.get(&2).unwrap();
+        // let mut fragment_index = 0;
+        // let mut start_time = Instant::now();
+        // 
+        // loop {
+        //     if start_time.elapsed() >= Duration::from_secs(1) {
+        //         sender.send(Packet {
+        //             pack_type: PacketType::MsgFragment(Fragment {
+        //                 fragment_index,
+        //                 total_n_fragments: 0,
+        //                 length: 0,
+        //                 data: [0; 128],
+        //             }),
+        //             routing_header: SourceRoutingHeader {
+        //                 hop_index: 1,
+        //                 hops: vec![self.id, 2, 1, 5]
+        //             },
+        //             session_id: 0,
+        //         }).expect("Error in send");
+        // 
+        //         fragment_index += 1;
+        //         start_time = Instant::now();
+        //     }
+        //     if let Ok(packet) = self.packet_recv.try_recv() {
+        //         self.handle_packet(packet);
+        //     }
+        // }
+        
+        loop {
+            let mut session_id = 0;
+            select! {
+                recv(self.controller_recv) -> command => {
+                    if let Ok(cmd) = command {
+                        self.handle_command(cmd, session_id);
+                        session_id += 1;
+                    }
+                },
+                recv(self.packet_recv) -> packet => {
+                    if let Ok(pckt) = packet {
+                        self.handle_packet(pckt);
+                    }
+                }
+            }
+        }
+    }
+    
+    fn handle_command(&self, command: ClientCommand, session_id: u64) {
+        match command {
+            ClientCommand::SendFragment => {
+                self.send_fragment(session_id);
+            }
+            ClientCommand::SendFloodRequest => {
+                self.send_flood_request(session_id);
+            }
+            _ => {}
+        }
+    }
+    
+    fn send_fragment(&self, session_id: u64) {
+        let routing_header = if self.id == 1 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![1, 6, 8, 3],
+            }
+        } else if self.id == 2 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![2, 6, 7, 4],
+            }
+        } else {
+            panic!("error in topology sending fragment");
+        };
+
+        let packet = Packet {
+            routing_header,
+            session_id,
+            pack_type: PacketType::MsgFragment(
+                Fragment {
+                    fragment_index: 0,
+                    total_n_fragments: 1,
+                    length: 0,
+                    data: [0; 128],
+                }
+            ),
+        };
+        self.packet_send.get(&6).send(packet.clone()).expect("Error in send");
+    }
+
+    fn send_flood_request(&self, session_id: u64) {
         let flood_request_packet = Packet {
             pack_type: PacketType::FloodRequest(FloodRequest {
-                flood_id: 0,
+                flood_id: session_id,
                 initiator_id: self.id,
                 path_trace: vec![(self.id, NodeType::Client)],
             }),
@@ -46,40 +153,11 @@ impl Client {
                 hop_index: 0,
                 hops: vec![],
             },
-            session_id: 0,
+            session_id,
         };
 
         for (_, sender) in self.packet_send.iter() {
             sender.send(flood_request_packet.clone()).expect("Error in send");
-        }
-
-        //send other packets
-        let sender = self.packet_send.get(&2).unwrap();
-        let mut fragment_index = 0;
-        let mut start_time = Instant::now();
-
-        loop {
-            if start_time.elapsed() >= Duration::from_secs(1) {
-                sender.send(Packet {
-                    pack_type: PacketType::MsgFragment(Fragment {
-                        fragment_index,
-                        total_n_fragments: 0,
-                        length: 0,
-                        data: [0; 128],
-                    }),
-                    routing_header: SourceRoutingHeader {
-                        hop_index: 1,
-                        hops: vec![self.id, 2, 1, 5]
-                    },
-                    session_id: 0,
-                }).expect("Error in send");
-
-                fragment_index += 1;
-                start_time = Instant::now();
-            }
-            if let Ok(packet) = self.packet_recv.try_recv() {
-                self.handle_packet(packet);
-            }
         }
     }
 
