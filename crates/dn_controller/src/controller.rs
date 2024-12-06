@@ -138,13 +138,13 @@ impl SimulationController {
 
     // Clients
 
-    fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
+    pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?.0;
         sender.send(ClientCommand::SendFragment).ok()?;
         Some(())
     }
 
-    fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
+    pub fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?.0;
         sender.send(ClientCommand::SendFloodRequest).ok()?;
         Some(())
