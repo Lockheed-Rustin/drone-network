@@ -7,5 +7,5 @@ fn main() {
     let controller = network::init_network(&config).unwrap();
     println!("{:#?}", controller.topology);
     // let the threads live
-    loop{}
+    loop {}
 }

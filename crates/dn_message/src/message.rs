@@ -1,4 +1,4 @@
-use wg_2024::network::{NodeId};
+use wg_2024::network::NodeId;
 
 #[derive(Debug, Clone)]
 pub enum Message {

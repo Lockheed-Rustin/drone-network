@@ -1,15 +1,16 @@
 use crossbeam_channel::{select, Receiver, Sender};
-use dn_controller::ClientCommand;
+use dn_controller::{ClientCommand, ClientEvent};
 use std::collections::HashMap;
 
-use wg_2024::{network::NodeId, packet::Packet};
 use wg_2024::network::SourceRoutingHeader;
-use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
+use wg_2024::packet::{
+    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType,
+};
+use wg_2024::{network::NodeId, packet::Packet};
 
 pub struct Client {
     pub id: NodeId,
-    // TODO: create ClientEvent
-    // pub controller_send: Sender<NodeEvent>,
+    pub controller_send: Sender<ClientEvent>,
     pub controller_recv: Receiver<ClientCommand>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
@@ -18,14 +19,14 @@ pub struct Client {
 impl Client {
     pub fn new(
         id: NodeId,
-        // pub controller_send: Sender<NodeEvent>,
+        controller_send: Sender<ClientEvent>,
         controller_recv: Receiver<ClientCommand>,
         packet_send: HashMap<NodeId, Sender<Packet>>,
         packet_recv: Receiver<Packet>,
-    )-> Self {
+    ) -> Self {
         Self {
             id,
-            // pub controller_send: Sender<NodeEvent>,
+            controller_send,
             controller_recv,
             packet_send,
             packet_recv,
@@ -50,7 +51,7 @@ impl Client {
             }
         }
     }
-    
+
     fn handle_command(&self, command: ClientCommand, session_id: u64) {
         match command {
             ClientCommand::SendFragment => {
@@ -62,7 +63,7 @@ impl Client {
             _ => {}
         }
     }
-    
+
     fn send_fragment(&self, session_id: u64) {
         let routing_header = if self.id == 1 {
             SourceRoutingHeader {
@@ -81,16 +82,21 @@ impl Client {
         let packet = Packet {
             routing_header,
             session_id,
-            pack_type: PacketType::MsgFragment(
-                Fragment {
-                    fragment_index: 0,
-                    total_n_fragments: 1,
-                    length: 0,
-                    data: [0; 128],
-                }
-            ),
+            pack_type: PacketType::MsgFragment(Fragment {
+                fragment_index: 0,
+                total_n_fragments: 1,
+                length: 0,
+                data: [0; 128],
+            }),
         };
-        self.packet_send.get(&6).unwrap().send(packet.clone()).expect("Error in send");
+        self.packet_send
+            .get(&6)
+            .unwrap()
+            .send(packet.clone())
+            .expect("Error in send");
+        self.controller_send
+            .send(ClientEvent::PacketSent(packet))
+            .expect("Error in controller_send");
     }
 
     fn send_flood_request(&self, session_id: u64) {
@@ -108,11 +114,21 @@ impl Client {
         };
 
         for (_, sender) in self.packet_send.iter() {
-            sender.send(flood_request_packet.clone()).expect("Error in send");
+            sender
+                .send(flood_request_packet.clone())
+                .expect("Error in send");
         }
+
+        self.controller_send
+            .send(ClientEvent::PacketSent(flood_request_packet))
+            .expect("Error in controller_send");
     }
 
     fn handle_packet(&self, packet: Packet) {
+        self.controller_send
+            .send(ClientEvent::PacketReceived(packet.clone()))
+            .expect("Error in controller_send");
+
         match packet.pack_type {
             PacketType::MsgFragment(_) => {
                 println!("Client#{} received fragment", self.id);
@@ -122,21 +138,25 @@ impl Client {
             }
             PacketType::Nack(nack) => {
                 println!("Client#{} received nack: {:?}", self.id, nack);
-
             }
             PacketType::FloodRequest(mut flood_request) => {
                 println!("Client#{} received flood request", self.id);
                 self.send_flood_response(packet.session_id, flood_request);
             }
             PacketType::FloodResponse(flood_response) => {
-                println!("Client#{} received flood response: {:?}", self.id, flood_response);
+                println!(
+                    "Client#{} received flood response: {:?}",
+                    self.id, flood_response
+                );
             }
         }
     }
 
     fn send_flood_response(&self, session_id: u64, mut flood_request: FloodRequest) {
         flood_request.path_trace.push((self.id, NodeType::Server));
-        let hops = flood_request.path_trace.iter()
+        let hops = flood_request
+            .path_trace
+            .iter()
             .map(|(node_id, _)| *node_id)
             .rev()
             .collect();
@@ -146,13 +166,15 @@ impl Client {
                 flood_id: flood_request.flood_id,
                 path_trace: flood_request.path_trace,
             }),
-            routing_header: SourceRoutingHeader {
-                hop_index: 1,
-                hops,
-            },
+            routing_header: SourceRoutingHeader { hop_index: 1, hops },
             session_id,
         };
 
-        self.packet_send[&flood_response_packet.routing_header.hops[1]].send(flood_response_packet).expect("Error in send");
+        self.packet_send[&flood_response_packet.routing_header.hops[1]]
+            .send(flood_response_packet.clone())
+            .expect("Error in send");
+        self.controller_send
+            .send(ClientEvent::PacketSent(flood_response_packet))
+            .expect("Error in controller_send");
     }
 }

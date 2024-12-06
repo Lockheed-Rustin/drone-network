@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use wg_2024::{
     config,
     controller::DroneEvent,
-    drone::{Drone},
+    drone::Drone,
     network::NodeId,
     packet::{NodeType, Packet},
 };
@@ -116,7 +116,8 @@ fn init_drones(opt: &mut InitOption) {
                 packet_recv,
                 packet_send,
                 drone_pdr,
-            ).run();
+            )
+            .run();
         });
     }
 }
@@ -138,11 +139,12 @@ fn init_clients(opt: &mut InitOption) {
         opt.pool.spawn(move || {
             Client::new(
                 id,
-                // controller_send,
+                controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
-            ).run();
+            )
+            .run();
         });
     }
 }
@@ -164,11 +166,12 @@ fn init_servers(opt: &mut InitOption) {
         opt.pool.spawn(move || {
             Server::new(
                 id,
-                // controller_send,
+                controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
-            ).run();
+            )
+            .run();
         });
     }
 }

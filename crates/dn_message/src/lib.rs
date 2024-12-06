@@ -1,5 +1,5 @@
-mod message;
 mod assembler;
+mod message;
 
-pub use message::*;
 pub use assembler::*;
+pub use message::*;
