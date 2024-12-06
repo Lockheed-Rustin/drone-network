@@ -2,13 +2,14 @@ use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::ClientCommand;
 use std::collections::HashMap;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use wg_2024::{network::NodeId, packet::Packet};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
 
 pub struct Client {
+    pub id: NodeId,
     // TODO: create ClientEvent
     // pub controller_send: Sender<NodeEvent>,
     pub controller_recv: Receiver<ClientCommand>,
@@ -17,91 +18,103 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn run(&mut self) {
+    pub fn new(
+        id: NodeId,
+        // pub controller_send: Sender<NodeEvent>,
+        controller_recv: Receiver<ClientCommand>,
+        packet_send: HashMap<NodeId, Sender<Packet>>,
+        packet_recv: Receiver<Packet>,
+    )-> Self {
+        Self {
+            id,
+            // pub controller_send: Sender<NodeEvent>,
+            controller_recv,
+            packet_send,
+            packet_recv,
+        }
+    }
+
+    pub fn run(&self) {
+        loop {
+            let mut session_id = 0;
+            select! {
+                recv(self.controller_recv) -> command => {
+                    if let Ok(cmd) = command {
+                        self.handle_command(cmd, session_id);
+                        session_id += 1;
+                    }
+                },
+                recv(self.packet_recv) -> packet => {
+                    if let Ok(pckt) = packet {
+                        self.handle_packet(pckt);
+                    }
+                }
+            }
+        }
+    }
+    
+    fn handle_command(&self, command: ClientCommand, session_id: u64) {
+        match command {
+            ClientCommand::SendFragment => {
+                self.send_fragment(session_id);
+            }
+            ClientCommand::SendFloodRequest => {
+                self.send_flood_request(session_id);
+            }
+            _ => {}
+        }
+    }
+    
+    fn send_fragment(&self, session_id: u64) {
+        let routing_header = if self.id == 1 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![1, 6, 8, 3],
+            }
+        } else if self.id == 2 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![2, 6, 7, 4],
+            }
+        } else {
+            panic!("error in topology sending fragment");
+        };
+
+        let packet = Packet {
+            routing_header,
+            session_id,
+            pack_type: PacketType::MsgFragment(
+                Fragment {
+                    fragment_index: 0,
+                    total_n_fragments: 1,
+                    length: 0,
+                    data: [0; 128],
+                }
+            ),
+        };
+        self.packet_send.get(&6).unwrap().send(packet.clone()).expect("Error in send");
+    }
+
+    fn send_flood_request(&self, session_id: u64) {
         let flood_request_packet = Packet {
             pack_type: PacketType::FloodRequest(FloodRequest {
-                flood_id: 0,
-                initiator_id: 4,
-                path_trace: vec![(4, NodeType::Client)],
+                flood_id: session_id,
+                initiator_id: self.id,
+                path_trace: vec![(self.id, NodeType::Client)],
             }),
             routing_header: SourceRoutingHeader {
-                hop_index: 1,
+                hop_index: 0,
                 hops: vec![],
             },
-            session_id: 0,
+            session_id,
         };
 
         for (_, sender) in self.packet_send.iter() {
             sender.send(flood_request_packet.clone()).expect("Error in send");
         }
-
-        loop {
-            if let Ok(packet) = self.packet_recv.recv() {
-                self.handle_packet(packet);
-            } else {
-                break;
-            }
-        }
-
-
-        /*
-        sleep(Duration::from_secs(1));
-
-        let fragment = Fragment {
-            fragment_index: 0,
-            total_n_fragments: 0,
-            length: 0,
-            data: [0; 128],
-        };
-        let packet1 = Packet {
-            pack_type: PacketType::MsgFragment(fragment),
-            routing_header: SourceRoutingHeader {
-                hop_index: 1,
-                hops: vec![4, 2, 1, 5]
-            },
-            session_id: 0,
-        };
-
-        let ack = Ack {
-            fragment_index: 0,
-        };
-        let packet2 = Packet {
-            pack_type: PacketType::Ack(ack),
-            routing_header: SourceRoutingHeader {
-                hop_index: 1,
-                hops: vec![4, 2, 1, 5]
-            },
-            session_id: 0,
-        };
-
-        let nack = Nack {
-            fragment_index: 0,
-            nack_type: NackType::Dropped,
-        };
-        let packet3 = Packet {
-            pack_type: PacketType::Nack(nack),
-            routing_header: SourceRoutingHeader {
-                hop_index: 1,
-                hops: vec![4, 2, 1, 5]
-            },
-            session_id: 0,
-        };
-
-
-        let sender = self.packet_send.get(&2).unwrap();
-
-        loop {
-            sender.send(packet1.clone()).expect("Error in send");
-            sleep(Duration::from_secs(1));
-            sender.send(packet2.clone()).expect("Error in send");
-            sleep(Duration::from_secs(1));
-            sender.send(packet3.clone()).expect("Error in send");
-            sleep(Duration::from_secs(1));
-        }
-        */
     }
 
-    fn handle_packet(&mut self, packet: Packet) {
+    fn handle_packet(&self, packet: Packet) {
         match packet.pack_type {
             PacketType::MsgFragment(_) => {
                 println!("Client received fragment");
