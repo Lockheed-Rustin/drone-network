@@ -126,7 +126,7 @@ impl Client {
 
     fn handle_packet(&self, packet: Packet) {
         self.controller_send
-            .send(ClientEvent::PacketReceived(packet.clone()))
+            .send(ClientEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
 
         match packet.pack_type {
