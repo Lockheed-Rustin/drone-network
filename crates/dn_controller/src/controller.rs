@@ -1,4 +1,4 @@
-use crate::{ClientCommand, ServerCommand};
+use crate::{ClientCommand, ClientEvent, ServerCommand, ServerEvent};
 use crossbeam_channel::{Receiver, Sender};
 use dn_topology::Topology;
 use std::collections::HashMap;
@@ -35,8 +35,10 @@ impl NodeSender {
 
 pub struct SimulationController {
     node_senders: HashMap<NodeId, NodeSender>,
-    node_recv: Receiver<DroneEvent>,
-    // TODO: add receivers for ClientEvent and ServerEvent
+    drone_recv: Receiver<DroneEvent>,
+    server_recv: Receiver<ServerEvent>,
+    client_recv: Receiver<ClientEvent>,
+
     pub topology: Topology,
 
     pool: rayon::ThreadPool,
@@ -45,22 +47,33 @@ pub struct SimulationController {
 impl SimulationController {
     pub fn new(
         node_senders: HashMap<NodeId, NodeSender>,
-        node_recv: Receiver<DroneEvent>,
+        drone_recv: Receiver<DroneEvent>,
+        server_recv: Receiver<ServerEvent>,
+        client_recv: Receiver<ClientEvent>,
         topology: Topology,
         pool: rayon::ThreadPool,
     ) -> Self {
         Self {
             node_senders,
-            node_recv,
+            drone_recv,
+            server_recv,
+            client_recv,
             topology,
             pool,
         }
     }
 
-    // General
-    // TODO: Should be generic event, or 3 different receivers
-    pub fn get_receiver(&self) -> Receiver<DroneEvent> {
-        self.node_recv.clone()
+    // general
+    pub fn get_drone_recv(&self) -> Receiver<DroneEvent> {
+        self.drone_recv.clone()
+    }
+
+    pub fn get_server_recv(&self) -> Receiver<ServerEvent> {
+        self.server_recv.clone()
+    }
+
+    pub fn get_client_recv(&self) -> Receiver<ClientEvent> {
+        self.client_recv.clone()
     }
 
     pub fn add_edge(&self, a: NodeId, b: NodeId) -> Option<()> {

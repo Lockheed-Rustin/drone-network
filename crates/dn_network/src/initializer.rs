@@ -1,6 +1,6 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
-use dn_controller::{NodeSender, SimulationController};
+use dn_controller::{ClientEvent, NodeSender, ServerEvent, SimulationController};
 use dn_server::Server;
 use dn_topology::{Node, Topology};
 use drone::LockheedRustin;
@@ -35,7 +35,9 @@ pub enum NetworkInitError {
 struct InitOption<'a> {
     config: &'a config::Config,
     packets: HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    node_send: Sender<DroneEvent>,
+    drone_send: Sender<DroneEvent>,
+    server_send: Sender<ServerEvent>,
+    client_send: Sender<ClientEvent>,
     node_senders: HashMap<NodeId, NodeSender>,
     pool: rayon::ThreadPool,
 }
@@ -43,7 +45,9 @@ struct InitOption<'a> {
 pub fn init_network(config: &config::Config) -> Result<SimulationController, NetworkInitError> {
     let topology = init_topology(config)?;
 
-    let (node_send, node_recv) = unbounded();
+    let (drone_send, drone_recv) = unbounded();
+    let (server_send, server_recv) = unbounded();
+    let (client_send, client_recv) = unbounded();
 
     let mut packets = HashMap::new();
     for drone in config.drone.iter() {
@@ -61,7 +65,9 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     let mut opt = InitOption {
         config,
         packets,
-        node_send,
+        drone_send,
+        server_send,
+        client_send,
         node_senders: HashMap::new(),
         pool,
     };
@@ -71,7 +77,9 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
 
     Ok(SimulationController::new(
         opt.node_senders,
-        node_recv,
+        drone_recv,
+        server_recv,
+        client_recv,
         topology,
         opt.pool,
     ))
@@ -93,7 +101,7 @@ fn init_drones(opt: &mut InitOption) {
             drone.id,
             NodeSender::Drone(drone_send, opt.packets[&drone.id].0.clone()),
         );
-        let controller_send = opt.node_send.clone();
+        let controller_send = opt.drone_send.clone();
         // packet
         let packet_recv = opt.packets[&drone.id].1.clone();
         let packet_send = get_packet_send(opt, &drone.connected_node_ids);
@@ -121,7 +129,7 @@ fn init_clients(opt: &mut InitOption) {
             client.id,
             NodeSender::Client(client_send, opt.packets[&client.id].0.clone()),
         );
-        let controller_send = opt.node_send.clone();
+        let controller_send = opt.client_send.clone();
         // packet
         let packet_recv = opt.packets[&client.id].1.clone();
         let packet_send = get_packet_send(opt, &client.connected_drone_ids);
@@ -147,7 +155,7 @@ fn init_servers(opt: &mut InitOption) {
             server.id,
             NodeSender::Server(server_send, opt.packets[&server.id].0.clone()),
         );
-        let controller_send = opt.node_send.clone();
+        let controller_send = opt.server_send.clone();
         // packet
         let packet_recv = opt.packets[&server.id].1.clone();
         let packet_send = get_packet_send(opt, &server.connected_drone_ids);
