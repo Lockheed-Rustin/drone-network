@@ -33,7 +33,7 @@ impl Client {
         }
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         loop {
             let mut session_id = 0;
             select! {
@@ -52,14 +52,12 @@ impl Client {
         }
     }
 
-    fn handle_command(&self, command: ClientCommand, session_id: u64) {
+    fn handle_command(&mut self, command: ClientCommand, session_id: u64) {
         match command {
-            ClientCommand::SendFragment => {
-                self.send_fragment(session_id);
-            }
-            ClientCommand::SendFloodRequest => {
-                self.send_flood_request(session_id);
-            }
+            ClientCommand::SendFragment => self.send_fragment(session_id),
+            ClientCommand::SendFloodRequest => self.send_flood_request(session_id),
+            ClientCommand::RemoveSender(n) => self.remove_sender(n),
+            ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
             _ => {}
         }
     }
@@ -122,6 +120,14 @@ impl Client {
         self.controller_send
             .send(ClientEvent::PacketSent(flood_request_packet))
             .expect("Error in controller_send");
+    }
+
+    fn remove_sender(&mut self, n: NodeId) {
+        self.packet_send.remove(&n);
+    }
+
+    fn add_sender(&mut self, n: NodeId, sender: Sender<Packet>) {
+        self.packet_send.insert(n, sender);
     }
 
     fn handle_packet(&self, packet: Packet) {

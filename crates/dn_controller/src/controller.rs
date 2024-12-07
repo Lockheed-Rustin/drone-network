@@ -1,8 +1,10 @@
 use crate::{ClientCommand, ClientEvent, ServerCommand, ServerEvent};
 use crossbeam_channel::{Receiver, Sender};
-use dn_topology::Topology;
+use dn_topology::{Node, Topology};
+use petgraph::algo::connected_components;
+use petgraph::visit::IntoNeighbors;
 use std::collections::HashMap;
-use wg_2024::packet::Packet;
+use wg_2024::packet::{NodeType, Packet};
 use wg_2024::{
     controller::{DroneCommand, DroneEvent},
     network::NodeId,
@@ -63,7 +65,8 @@ impl SimulationController {
         }
     }
 
-    // general
+    // ---- General ----
+
     pub fn get_drone_recv(&self) -> Receiver<DroneEvent> {
         self.drone_recv.clone()
     }
@@ -76,11 +79,18 @@ impl SimulationController {
         self.client_recv.clone()
     }
 
-    pub fn add_edge(&self, a: NodeId, b: NodeId) -> Option<()> {
+    pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
         let a_sender = self.get_sender(a)?;
         let b_sender = self.get_sender(b)?;
         a_sender.add_sender(b, b_sender.get_packet_sender())?;
-        b_sender.add_sender(a, a_sender.get_packet_sender())
+        b_sender.add_sender(a, a_sender.get_packet_sender())?;
+
+        // update topology
+        let node_a = self.get_topology_node_by_id(a)?;
+        let node_b = self.get_topology_node_by_id(b)?;
+        self.topology.add_edge(node_a, node_b, ());
+
+        Some(())
     }
 
     pub fn get_drone_ids(&self) -> Vec<NodeId> {
@@ -126,12 +136,41 @@ impl SimulationController {
         self.node_senders.get(&id).cloned()
     }
 
-    // Drones
+    fn remove_sender(&self, removed_id: NodeId, from_id: NodeId) -> Option<()> {
+        if let Some(node_sender) = self.get_sender(from_id) {
+            match node_sender {
+                NodeSender::Drone(drone_sender, _) => drone_sender
+                    .send(DroneCommand::RemoveSender(removed_id))
+                    .ok(),
+                NodeSender::Client(client_sender, _) => client_sender
+                    .send(ClientCommand::RemoveSender(removed_id))
+                    .ok(),
+                NodeSender::Server(server_sender, _) => server_sender
+                    .send(ServerCommand::RemoveSender(removed_id))
+                    .ok(),
+            }
+        } else {
+            None
+        }
+    }
+
+    // ---- Drones ----
+
     pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
         let sender = self.get_drone_sender(id)?.0;
-        sender.send(DroneCommand::Crash).ok()?;
-        self.node_senders.remove(&id);
-        Some(())
+        let node = self.get_topology_node_by_id(id)?;
+
+        if self.topology_crash_check(node) {
+            for neighbor in self.topology.neighbors(node) {
+                self.remove_sender(id, neighbor.id)?
+            }
+            self.topology.remove_node(node);
+            sender.send(DroneCommand::Crash).ok()?;
+            self.node_senders.remove(&id);
+            Some(())
+        } else {
+            None
+        }
     }
 
     pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
@@ -147,7 +186,7 @@ impl SimulationController {
         }
     }
 
-    // Clients
+    // ---- Clients ----
 
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?.0;
@@ -166,5 +205,31 @@ impl SimulationController {
             NodeSender::Client(ccs, ps) => Some((ccs, ps)),
             _ => None,
         }
+    }
+
+    fn get_topology_node_by_id(&self, id: NodeId) -> Option<Node> {
+        self.topology.nodes().find(|node| node.id == id)
+    }
+
+    /// condition for crashing drone
+    fn topology_crash_check(&self, crashed_drone: Node) -> bool {
+        if crashed_drone.ty != NodeType::Drone {
+            return false;
+        }
+
+        let mut topology_copy = self.topology.clone();
+        topology_copy.remove_node(crashed_drone);
+
+        if connected_components(&topology_copy) != 1 {
+            return false;
+        }
+
+        for a in self.topology.neighbors(crashed_drone) {
+            if a.ty == NodeType::Server {
+                return self.topology.neighbors(a).count() > 2;
+            }
+        }
+
+        true
     }
 }

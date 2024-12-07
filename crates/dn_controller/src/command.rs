@@ -7,10 +7,12 @@ pub enum ClientCommand {
     SendMessage(ClientBody),
     SendFragment,
     SendFloodRequest,
+    RemoveSender(NodeId),
 }
 
 pub enum ServerCommand {
     AddSender(NodeId, Sender<Packet>),
+    RemoveSender(NodeId),
 }
 
 pub enum ServerEvent {

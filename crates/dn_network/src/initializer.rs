@@ -176,7 +176,7 @@ fn init_servers(opt: &mut InitOption) {
     }
 }
 
-pub fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
+fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
     let mut graph = UnGraphMap::new();
     let mut nodes = HashMap::new();
 
