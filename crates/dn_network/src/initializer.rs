@@ -60,6 +60,11 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         packets.insert(server.id, unbounded());
     }
 
+    let mut start_pdr = HashMap::new();
+    for drone in config.drone.iter() {
+        start_pdr.insert(drone.id, drone.pdr);
+    }
+
     let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     let mut opt = InitOption {
@@ -81,6 +86,7 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         server_recv,
         client_recv,
         topology,
+        start_pdr,
         opt.pool,
     ))
 }

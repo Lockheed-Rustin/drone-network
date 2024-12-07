@@ -42,6 +42,7 @@ pub struct SimulationController {
     client_recv: Receiver<ClientEvent>,
 
     pub topology: Topology,
+    pub start_pdr: HashMap<NodeId, f32>,
 
     pool: rayon::ThreadPool,
 }
@@ -53,6 +54,7 @@ impl SimulationController {
         server_recv: Receiver<ServerEvent>,
         client_recv: Receiver<ClientEvent>,
         topology: Topology,
+        start_pdr: HashMap<NodeId, f32>,
         pool: rayon::ThreadPool,
     ) -> Self {
         Self {
@@ -61,11 +63,13 @@ impl SimulationController {
             server_recv,
             client_recv,
             topology,
+            start_pdr,
             pool,
         }
     }
 
-    // ---- General ----
+
+    // ----- General -----
 
     pub fn get_drone_recv(&self) -> Receiver<DroneEvent> {
         self.drone_recv.clone()
@@ -136,6 +140,7 @@ impl SimulationController {
         self.node_senders.get(&id).cloned()
     }
 
+
     fn remove_sender(&self, removed_id: NodeId, from_id: NodeId) -> Option<()> {
         if let Some(node_sender) = self.get_sender(from_id) {
             match node_sender {
@@ -186,7 +191,8 @@ impl SimulationController {
         }
     }
 
-    // ---- Clients ----
+
+    // ----- Clients -----
 
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?.0;
