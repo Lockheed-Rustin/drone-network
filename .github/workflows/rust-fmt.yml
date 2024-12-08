@@ -3,6 +3,7 @@ on: [ pull_request ]
 
 jobs:
   keys:
+    runs-on: ubuntu-latest
     steps:
     - name: give gitHub actions access to this repo 
       uses: webfactory/ssh-agent@v0.5.4
