@@ -201,6 +201,13 @@ impl SimulationController {
         }
     }
 
+    pub fn get_pdr(&self, drone_id: NodeId) -> Option<f32> {
+        match &self.nodes.get(&drone_id)?.node_type {
+            NodeType::Drone { pdr, .. } => Some(*pdr),
+            _ => None,
+        }
+    }
+
     // TODO: remove this after the fair
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?;
