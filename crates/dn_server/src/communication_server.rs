@@ -1,21 +1,17 @@
 use crossbeam_channel::{select, Receiver, Sender};
-use dn_controller::ServerCommand;
+use dn_controller::{ServerCommand, ServerEvent, Topology};
 use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
     ServerCommunicationBody,
 };
-use dn_topology::Topology;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, Packet, PacketType};
 
-// TODO: TEMP
-enum CommunicationServerEvent {}
-
 type PendingFragments = HashMap<u64, Fragment>;
 
 pub struct CommunicationServer  {
-    controller_send: Sender<CommunicationServerEvent>,
+    controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
     packet_recv: Receiver<Packet>,
@@ -32,7 +28,7 @@ pub struct CommunicationServer  {
 
 impl CommunicationServer {
     pub fn new(
-        controller_send: Sender<CommunicationServerEvent>,
+        controller_send: Sender<ServerEvent>,
         controller_recv: Receiver<ServerCommand>,
         packet_send: HashMap<NodeId, Sender<Packet>>,
         packet_recv: Receiver<Packet>,
