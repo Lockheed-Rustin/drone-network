@@ -223,6 +223,14 @@ impl SimulationController {
     }
 
     // TODO: remove this after the fair
+    pub fn send_ack_fair(&self, id: NodeId) -> Option<()> {
+        let sender = self.get_client_sender(id)?;
+        sender.send(ClientCommand::SendAck).ok()?;
+        Some(())
+    }
+
+
+    // TODO: remove this after the fair
     pub fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?;
         sender.send(ClientCommand::SendFloodRequest).ok()?;
