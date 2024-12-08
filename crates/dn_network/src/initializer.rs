@@ -268,8 +268,8 @@ fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> 
     for node in graph.nodes() {
         topology.add_node(node);
     }
-    for (a, b, w) in graph.all_edges() {
-        topology.add_edge(a, b, *w);
+    for (a, b, _) in graph.all_edges() {
+        topology.add_edge(a, b, ());
     }
     Ok(topology)
 }
