@@ -17,7 +17,12 @@ impl Assembler {
         }
     }
 
-    pub fn handle_fragment(&mut self, fragment: Fragment, sender_id: NodeId, session_id: u64) -> Option<Message> {
+    pub fn handle_fragment(
+        &mut self,
+        fragment: Fragment,
+        sender_id: NodeId,
+        session_id: u64,
+    ) -> Option<Message> {
         let buffer = self
             .in_progress_messages
             .entry((sender_id, session_id))
@@ -27,8 +32,7 @@ impl Assembler {
 
         if buffer.is_complete() {
             let message = buffer.to_message();
-            self.in_progress_messages
-                .remove(&(sender_id, session_id));
+            self.in_progress_messages.remove(&(sender_id, session_id));
             Some(message)
         } else {
             None
@@ -58,7 +62,7 @@ impl Assembler {
         fragments
     }
 
-    fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
+    fn serialize_message_data(&self, _message: &Message) -> Vec<u8> {
         unimplemented!("serialize_message_data");
     }
 }

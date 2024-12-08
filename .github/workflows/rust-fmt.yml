@@ -1,0 +1,19 @@
+name: rust-fmt 
+on: [ pull_request ]
+
+jobs:
+  keys:
+    steps:
+    - name: give gitHub actions access to this repo 
+      uses: webfactory/ssh-agent@v0.5.4
+      with:
+        ssh-private-key: ${{ secrets.REPO_DEPLOY_KEY }}
+  format:
+    needs: keys
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: run cargo fmt
+        run: cargo fmt --all --check --quiet

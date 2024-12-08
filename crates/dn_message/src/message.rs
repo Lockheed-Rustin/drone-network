@@ -1,9 +1,9 @@
-use wg_2024::network::{NodeId};
+use wg_2024::network::NodeId;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Client(ClientBody),
-    Server(ServerBody),
+    Client(ClientBody), // comes from Client
+    Server(ServerBody), // comes from Server
 }
 
 // --- Server ---
