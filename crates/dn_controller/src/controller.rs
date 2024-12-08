@@ -1,75 +1,84 @@
 use crate::{ClientCommand, ClientEvent, ServerCommand, ServerEvent};
 use crossbeam_channel::{Receiver, Sender};
-use dn_topology::{Node, Topology};
 use petgraph::algo::connected_components;
-use petgraph::visit::IntoNeighbors;
+use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
-use wg_2024::packet::{NodeType, Packet};
+use std::fmt::Debug;
+use wg_2024::packet::Packet;
 use wg_2024::{
     controller::{DroneCommand, DroneEvent},
     network::NodeId,
 };
 
-#[derive(Clone)]
-pub enum NodeSender {
-    Drone(Sender<DroneCommand>, Sender<Packet>),
-    Client(Sender<ClientCommand>, Sender<Packet>),
-    Server(Sender<ServerCommand>, Sender<Packet>),
+pub type Topology = UnGraphMap<NodeId, ()>;
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub packet_send: Sender<Packet>,
+    pub node_type: NodeType,
 }
 
-impl NodeSender {
-    fn get_packet_sender(&self) -> Sender<Packet> {
+#[derive(Debug, Clone)]
+pub enum NodeType {
+    Drone {
+        sender: Sender<DroneCommand>,
+        pdr: f32,
+    },
+    Client {
+        sender: Sender<ClientCommand>,
+    },
+    Server {
+        sender: Sender<ServerCommand>,
+    },
+}
+
+impl NodeType {
+    fn add_sender(&self, id: NodeId, ps: Sender<Packet>) -> Option<()> {
         match self {
-            NodeSender::Drone(_, ps) => ps.clone(),
-            NodeSender::Client(_, ps) => ps.clone(),
-            NodeSender::Server(_, ps) => ps.clone(),
+            NodeType::Drone { sender, .. } => sender.send(DroneCommand::AddSender(id, ps)).ok(),
+            NodeType::Client { sender } => sender.send(ClientCommand::AddSender(id, ps)).ok(),
+            NodeType::Server { sender } => sender.send(ServerCommand::AddSender(id, ps)).ok(),
         }
     }
-
-    fn add_sender(&self, id: NodeId, sender: Sender<Packet>) -> Option<()> {
+    fn remove_sender(&self, id: NodeId) -> Option<()> {
         match self {
-            NodeSender::Drone(cs, _) => cs.send(DroneCommand::AddSender(id, sender)).ok(),
-            NodeSender::Client(cs, _) => cs.send(ClientCommand::AddSender(id, sender)).ok(),
-            NodeSender::Server(cs, _) => cs.send(ServerCommand::AddSender(id, sender)).ok(),
+            NodeType::Drone { sender, .. } => sender.send(DroneCommand::RemoveSender(id)).ok(),
+            NodeType::Client { sender } => sender.send(ClientCommand::RemoveSender(id)).ok(),
+            NodeType::Server { sender } => sender.send(ServerCommand::RemoveSender(id)).ok(),
         }
     }
 }
 
 pub struct SimulationController {
-    node_senders: HashMap<NodeId, NodeSender>,
+    nodes: HashMap<NodeId, Node>,
+
     drone_recv: Receiver<DroneEvent>,
-    server_recv: Receiver<ServerEvent>,
     client_recv: Receiver<ClientEvent>,
+    server_recv: Receiver<ServerEvent>,
 
-    pub topology: Topology,
-    pub start_pdr: HashMap<NodeId, f32>,
+    topology: Topology,
 
-    pool: rayon::ThreadPool,
+    _pool: rayon::ThreadPool,
 }
 
 impl SimulationController {
     pub fn new(
-        node_senders: HashMap<NodeId, NodeSender>,
+        nodes: HashMap<NodeId, Node>,
         drone_recv: Receiver<DroneEvent>,
         server_recv: Receiver<ServerEvent>,
         client_recv: Receiver<ClientEvent>,
         topology: Topology,
-        start_pdr: HashMap<NodeId, f32>,
         pool: rayon::ThreadPool,
     ) -> Self {
         Self {
-            node_senders,
+            nodes,
             drone_recv,
             server_recv,
             client_recv,
             topology,
-            start_pdr,
-            pool,
+            _pool: pool,
         }
     }
-
-
-    // ----- General -----
 
     pub fn get_drone_recv(&self) -> Receiver<DroneEvent> {
         self.drone_recv.clone()
@@ -83,159 +92,170 @@ impl SimulationController {
         self.client_recv.clone()
     }
 
-    pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
-        let a_sender = self.get_sender(a)?;
-        let b_sender = self.get_sender(b)?;
-        a_sender.add_sender(b, b_sender.get_packet_sender())?;
-        b_sender.add_sender(a, a_sender.get_packet_sender())?;
-
-        // update topology
-        let node_a = self.get_topology_node_by_id(a)?;
-        let node_b = self.get_topology_node_by_id(b)?;
-        self.topology.add_edge(node_a, node_b, ());
-
-        Some(())
-    }
-
     pub fn get_drone_ids(&self) -> Vec<NodeId> {
-        let mut res = vec![];
-        for (id, sender) in self.node_senders.iter() {
-            match sender {
-                NodeSender::Drone(_, _) => {
-                    res.push(*id);
-                }
-                _ => {}
-            }
-        }
-        res
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| match node.node_type {
+                NodeType::Drone { .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn get_client_ids(&self) -> Vec<NodeId> {
-        let mut res = vec![];
-        for (id, sender) in self.node_senders.iter() {
-            match sender {
-                NodeSender::Client(_, _) => {
-                    res.push(*id);
-                }
-                _ => {}
-            }
-        }
-        res
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| match node.node_type {
+                NodeType::Client { .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn get_server_ids(&self) -> Vec<NodeId> {
-        let mut res = vec![];
-        for (id, sender) in self.node_senders.iter() {
-            match sender {
-                NodeSender::Server(_, _) => {
-                    res.push(*id);
-                }
-                _ => {}
-            }
-        }
-        res
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| match node.node_type {
+                NodeType::Server { .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
     }
 
-    fn get_sender(&self, id: NodeId) -> Option<NodeSender> {
-        self.node_senders.get(&id).cloned()
-    }
-
-
-    fn remove_sender(&self, removed_id: NodeId, from_id: NodeId) -> Option<()> {
-        if let Some(node_sender) = self.get_sender(from_id) {
-            match node_sender {
-                NodeSender::Drone(drone_sender, _) => drone_sender
-                    .send(DroneCommand::RemoveSender(removed_id))
-                    .ok(),
-                NodeSender::Client(client_sender, _) => client_sender
-                    .send(ClientCommand::RemoveSender(removed_id))
-                    .ok(),
-                NodeSender::Server(server_sender, _) => server_sender
-                    .send(ServerCommand::RemoveSender(removed_id))
-                    .ok(),
-            }
-        } else {
-            None
-        }
-    }
-
-    // ---- Drones ----
-
-    pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
-        let sender = self.get_drone_sender(id)?.0;
-        let node = self.get_topology_node_by_id(id)?;
-
-        if self.topology_crash_check(node) {
-            for neighbor in self.topology.neighbors(node) {
-                self.remove_sender(id, neighbor.id)?
-            }
-            self.topology.remove_node(node);
-            sender.send(DroneCommand::Crash).ok()?;
-            self.node_senders.remove(&id);
-            Some(())
-        } else {
-            None
-        }
-    }
-
-    pub fn set_pdr(&self, id: NodeId, pdr: f32) -> Option<()> {
-        let pdr = pdr.clamp(0.0, 1.0);
-        let sender = self.get_drone_sender(id)?.0;
-        sender.send(DroneCommand::SetPacketDropRate(pdr)).ok()
-    }
-
-    fn get_drone_sender(&self, id: NodeId) -> Option<(Sender<DroneCommand>, Sender<Packet>)> {
-        match self.get_sender(id)? {
-            NodeSender::Drone(dcs, ps) => Some((dcs, ps)),
+    pub fn get_drone_sender(&self, id: NodeId) -> Option<Sender<DroneCommand>> {
+        match &self.nodes.get(&id)?.node_type {
+            NodeType::Drone { sender, .. } => Some(sender.clone()),
             _ => None,
         }
     }
 
+    pub fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
+        match &self.nodes.get(&id)?.node_type {
+            NodeType::Client { sender } => Some(sender.clone()),
+            _ => None,
+        }
+    }
 
-    // ----- Clients -----
+    pub fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
+        match &self.nodes.get(&id)?.node_type {
+            NodeType::Server { sender } => Some(sender.clone()),
+            _ => None,
+        }
+    }
 
+    fn add_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
+        let a_node = self.nodes.get(&a)?;
+        let b_node = self.nodes.get(&b)?;
+        a_node.node_type.add_sender(b, b_node.packet_send.clone())?;
+        Some(())
+    }
+
+    pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
+        self.add_sender(a, b)?;
+        self.add_sender(b, a)?;
+
+        self.topology.add_edge(a, b, ())?;
+        Some(())
+    }
+
+    fn remove_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
+        let a_node = self.nodes.get(&a)?;
+        a_node.node_type.remove_sender(b)?;
+        Some(())
+    }
+
+    pub fn remove_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
+        self.remove_sender(a, b);
+        self.remove_sender(b, a);
+
+        self.topology.remove_edge(a, b)?;
+        Some(())
+    }
+
+    pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
+        let sender = self.get_drone_sender(id)?;
+        if !self.topology_crash_check(id) {
+            return None;
+        }
+
+        sender.send(DroneCommand::Crash).ok()?;
+        // remove all senders
+        for neighbor in self.topology.neighbors(id) {
+            self.remove_sender(neighbor, id)?
+        }
+        self.nodes.remove(&id);
+
+        self.topology.remove_node(id);
+        Some(())
+    }
+
+    pub fn set_pdr(&mut self, id: NodeId, new_pdr: f32) -> Option<()> {
+        let new_pdr = new_pdr.clamp(0.0, 1.0);
+        match &mut self.nodes.get_mut(&id)?.node_type {
+            NodeType::Drone { sender, pdr } => {
+                sender.send(DroneCommand::SetPacketDropRate(new_pdr)).ok();
+                *pdr = new_pdr;
+                Some(())
+            }
+            _ => return None,
+        }
+    }
+
+    // TODO: remove this after the fair
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
-        let sender = self.get_client_sender(id)?.0;
+        let sender = self.get_client_sender(id)?;
         sender.send(ClientCommand::SendFragment).ok()?;
         Some(())
     }
 
+    // TODO: remove this after the fair
     pub fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
-        let sender = self.get_client_sender(id)?.0;
+        let sender = self.get_client_sender(id)?;
         sender.send(ClientCommand::SendFloodRequest).ok()?;
         Some(())
     }
 
-    fn get_client_sender(&self, id: NodeId) -> Option<(Sender<ClientCommand>, Sender<Packet>)> {
-        match self.get_sender(id)? {
-            NodeSender::Client(ccs, ps) => Some((ccs, ps)),
-            _ => None,
-        }
-    }
-
-    fn get_topology_node_by_id(&self, id: NodeId) -> Option<Node> {
-        self.topology.nodes().find(|node| node.id == id)
-    }
-
-    /// condition for crashing drone
-    fn topology_crash_check(&self, crashed_drone: Node) -> bool {
-        if crashed_drone.ty != NodeType::Drone {
+    pub fn is_valid_topology(&self) -> bool {
+        if connected_components(&self.topology) != 1 {
             return false;
         }
+        for node in self.topology.nodes() {
+            let connected_nodes_count = self.topology.neighbors(node).count();
+            match self.nodes[&node].node_type {
+                NodeType::Drone { .. } => {}
+                NodeType::Client { .. } => {
+                    if connected_nodes_count < 1 || connected_nodes_count > 2 {
+                        return false;
+                    }
+                }
+                NodeType::Server { .. } => {
+                    if connected_nodes_count < 2 {
+                        return false;
+                    }
+                }
+            };
+        }
+        return true;
+    }
 
-        let mut topology_copy = self.topology.clone();
-        topology_copy.remove_node(crashed_drone);
+    pub fn topology_crash_check(&mut self, id: NodeId) -> bool {
+        let neighbors = self.topology.neighbors(id).collect::<Vec<_>>();
 
-        if connected_components(&topology_copy) != 1 {
-            return false;
+        // remove node and check if it's a valid topology
+        self.topology.remove_node(id);
+        let valid = self.is_valid_topology();
+        // restore the topology
+        self.topology.add_node(id);
+        for neighbor in neighbors.iter() {
+            self.topology.add_edge(id, *neighbor, ());
         }
 
-        for a in self.topology.neighbors(crashed_drone) {
-            if a.ty == NodeType::Server {
-                return self.topology.neighbors(a).count() > 2;
-            }
-        }
+        return valid;
+    }
+}
 
-        true
+impl Debug for SimulationController {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{:#?}", self.topology)
     }
 }

@@ -1,8 +1,9 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
-use dn_controller::{ClientEvent, NodeSender, ServerEvent, SimulationController};
+use dn_controller::{
+    ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController, Topology,
+};
 use dn_server::Server;
-use dn_topology::{Node, Topology};
 use drone::LockheedRustin;
 use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
@@ -38,7 +39,7 @@ struct InitOption<'a> {
     drone_send: Sender<DroneEvent>,
     server_send: Sender<ServerEvent>,
     client_send: Sender<ClientEvent>,
-    node_senders: HashMap<NodeId, NodeSender>,
+    nodes: HashMap<NodeId, Node>,
     pool: rayon::ThreadPool,
 }
 
@@ -60,11 +61,6 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         packets.insert(server.id, unbounded());
     }
 
-    let mut start_pdr = HashMap::new();
-    for drone in config.drone.iter() {
-        start_pdr.insert(drone.id, drone.pdr);
-    }
-
     let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     let mut opt = InitOption {
@@ -73,7 +69,7 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         drone_send,
         server_send,
         client_send,
-        node_senders: HashMap::new(),
+        nodes: HashMap::new(),
         pool,
     };
     init_drones(&mut opt);
@@ -81,12 +77,11 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
     init_servers(&mut opt);
 
     Ok(SimulationController::new(
-        opt.node_senders,
+        opt.nodes,
         drone_recv,
         server_recv,
         client_recv,
         topology,
-        start_pdr,
         opt.pool,
     ))
 }
@@ -103,9 +98,15 @@ fn init_drones(opt: &mut InitOption) {
     for drone in opt.config.drone.iter() {
         // controller
         let (drone_send, controller_recv) = unbounded();
-        opt.node_senders.insert(
+        opt.nodes.insert(
             drone.id,
-            NodeSender::Drone(drone_send, opt.packets[&drone.id].0.clone()),
+            Node {
+                packet_send: opt.packets[&drone.id].0.clone(),
+                node_type: ControllerNodeType::Drone {
+                    sender: drone_send,
+                    pdr: drone.pdr,
+                },
+            },
         );
         let controller_send = opt.drone_send.clone();
         // packet
@@ -132,9 +133,14 @@ fn init_clients(opt: &mut InitOption) {
     for client in opt.config.client.iter() {
         // controller
         let (client_send, controller_recv) = unbounded();
-        opt.node_senders.insert(
+        opt.nodes.insert(
             client.id,
-            NodeSender::Client(client_send, opt.packets[&client.id].0.clone()),
+            Node {
+                packet_send: opt.packets[&client.id].0.clone(),
+                node_type: ControllerNodeType::Client {
+                    sender: client_send,
+                },
+            },
         );
         let controller_send = opt.client_send.clone();
         // packet
@@ -159,9 +165,14 @@ fn init_servers(opt: &mut InitOption) {
     for server in opt.config.server.iter() {
         // controller
         let (server_send, controller_recv) = unbounded();
-        opt.node_senders.insert(
+        opt.nodes.insert(
             server.id,
-            NodeSender::Server(server_send, opt.packets[&server.id].0.clone()),
+            Node {
+                packet_send: opt.packets[&server.id].0.clone(),
+                node_type: ControllerNodeType::Server {
+                    sender: server_send,
+                },
+            },
         );
         let controller_send = opt.server_send.clone();
         // packet
@@ -182,90 +193,70 @@ fn init_servers(opt: &mut InitOption) {
     }
 }
 
+// TODO: add this checks inside controller is_valid_topology
 fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
     let mut graph = UnGraphMap::new();
-    let mut nodes = HashMap::new();
+    let mut node_types = HashMap::new();
 
     for drone in config.drone.iter() {
         if drone.pdr < 0.0 || drone.pdr > 1.0 {
             return Err(NetworkInitError::Pdr);
         }
-        let node = Node {
-            id: drone.id,
-            ty: NodeType::Drone,
-        };
-        graph.add_node(node);
-        nodes.insert(drone.id, node);
+        graph.add_node(drone.id);
+        node_types.insert(drone.id, NodeType::Drone);
     }
     for client in config.client.iter() {
         if client.connected_drone_ids.len() < 1 || client.connected_drone_ids.len() > 2 {
             return Err(NetworkInitError::EdgeCount);
         }
-        let node = Node {
-            id: client.id,
-            ty: NodeType::Drone,
-        };
-        graph.add_node(node);
-        nodes.insert(client.id, node);
+        graph.add_node(client.id);
+        node_types.insert(client.id, NodeType::Client);
     }
     for server in config.server.iter() {
         if server.connected_drone_ids.len() < 2 {
             return Err(NetworkInitError::EdgeCount);
         }
-        let node = Node {
-            id: server.id,
-            ty: NodeType::Server,
-        };
-        graph.add_node(node);
-        nodes.insert(server.id, node);
+        graph.add_node(server.id);
+        node_types.insert(server.id, NodeType::Server);
     }
 
     for drone in config.drone.iter() {
-        let node = nodes[&drone.id];
         for neighbor_id in drone.connected_node_ids.iter() {
             if drone.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
-            match nodes.get(neighbor_id) {
-                Some(&neighbor) => graph.add_edge(node, neighbor, ()),
-                None => return Err(NetworkInitError::NodeId),
-            };
+            let _ = *node_types
+                .get(neighbor_id)
+                .ok_or(NetworkInitError::NodeId)?;
+            graph.add_edge(drone.id, *neighbor_id, ());
         }
     }
     for client in config.client.iter() {
-        let node = nodes[&client.id];
         for neighbor_id in client.connected_drone_ids.iter() {
             if client.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
-            match nodes.get(neighbor_id) {
-                Some(&neighbor) => {
-                    if neighbor.ty != NodeType::Drone {
-                        return Err(NetworkInitError::Edge);
-                    } else {
-                        graph.add_edge(node, neighbor, ());
-                    }
-                }
-                None => return Err(NetworkInitError::NodeId),
-            };
+            let neighbor_type = *node_types
+                .get(neighbor_id)
+                .ok_or(NetworkInitError::NodeId)?;
+            if neighbor_type != NodeType::Drone {
+                return Err(NetworkInitError::Edge);
+            }
+            graph.add_edge(client.id, *neighbor_id, ());
         }
     }
     for server in config.server.iter() {
-        let node = nodes[&server.id];
         for neighbor_id in server.connected_drone_ids.iter() {
             if server.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
-            match nodes.get(neighbor_id) {
-                Some(&neighbor) => {
-                    if neighbor.ty != NodeType::Drone {
-                        return Err(NetworkInitError::Edge);
-                    } else {
-                        graph.add_edge(node, neighbor, ());
-                    }
-                }
-                None => return Err(NetworkInitError::NodeId),
-            };
+            let neighbor_type = *node_types
+                .get(neighbor_id)
+                .ok_or(NetworkInitError::NodeId)?;
+            if neighbor_type != NodeType::Drone {
+                return Err(NetworkInitError::Edge);
+            }
+            graph.add_edge(server.id, *neighbor_id, ());
         }
     }
 
