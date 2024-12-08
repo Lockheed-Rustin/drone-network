@@ -5,7 +5,7 @@ use dn_controller::{
 };
 use dn_server::Server;
 use drone::LockheedRustin;
-use petgraph::prelude::UnGraphMap;
+use petgraph::prelude::{DiGraphMap, UnGraphMap};
 use std::collections::HashMap;
 use wg_2024::{
     config,
@@ -195,7 +195,7 @@ fn init_servers(opt: &mut InitOption) {
 
 // TODO: add this checks inside controller is_valid_topology
 fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> {
-    let mut graph = UnGraphMap::new();
+    let mut graph = DiGraphMap::new();
     let mut node_types = HashMap::new();
 
     for drone in config.drone.iter() {
@@ -261,8 +261,15 @@ fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> 
     }
 
     if graph.is_directed() {
-        Err(NetworkInitError::Directed)
-    } else {
-        Ok(graph.into())
+        return Err(NetworkInitError::Directed);
     }
+
+    let mut topology = UnGraphMap::new();
+    for node in graph.nodes() {
+        topology.add_node(node);
+    }
+    for (a, b, w) in graph.all_edges() {
+        topology.add_edge(a, b, *w);
+    }
+    Ok(topology)
 }
