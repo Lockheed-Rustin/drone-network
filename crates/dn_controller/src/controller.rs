@@ -143,11 +143,6 @@ impl SimulationController {
         }
     }
 
-    pub fn get_packet_sender(&self, id: NodeId) -> Option<Sender<Packet>> {
-        Some(self.nodes.get(&id)?.packet_send.clone())
-
-    }
-
     fn add_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
         let a_node = self.nodes.get(&a)?;
         let b_node = self.nodes.get(&b)?;
@@ -208,10 +203,8 @@ impl SimulationController {
 
     pub fn get_pdr(&self, drone_id: NodeId) -> Option<f32> {
         match &self.nodes.get(&drone_id)?.node_type {
-            NodeType::Drone { pdr, .. } => {
-                Some(*pdr)
-            }
-            _ =>  None,
+            NodeType::Drone { pdr, .. } => Some(*pdr),
+            _ => None,
         }
     }
 
