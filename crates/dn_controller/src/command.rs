@@ -1,5 +1,5 @@
 use crossbeam_channel::Sender;
-use dn_message::{ClientBody, Message, ServerBody};
+use dn_message::{ClientBody, ServerBody};
 use wg_2024::{network::NodeId, packet::Packet};
 
 pub enum ClientCommand {

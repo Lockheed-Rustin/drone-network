@@ -3,9 +3,7 @@ use dn_controller::{ClientCommand, ClientEvent};
 use std::collections::HashMap;
 
 use wg_2024::network::SourceRoutingHeader;
-use wg_2024::packet::{
-    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType,
-};
+use wg_2024::packet::{FloodRequest, FloodResponse, Fragment, NodeType, PacketType};
 use wg_2024::{network::NodeId, packet::Packet};
 
 pub struct Client {
@@ -34,8 +32,8 @@ impl Client {
     }
 
     pub fn run(&mut self) {
+        let mut session_id = 0;
         loop {
-            let mut session_id = 0;
             select! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
@@ -145,7 +143,7 @@ impl Client {
             PacketType::Nack(nack) => {
                 println!("Client#{} received nack: {:?}", self.id, nack);
             }
-            PacketType::FloodRequest(mut flood_request) => {
+            PacketType::FloodRequest(flood_request) => {
                 println!("Client#{} received flood request", self.id);
                 self.send_flood_response(packet.session_id, flood_request);
             }

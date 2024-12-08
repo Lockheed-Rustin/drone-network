@@ -62,7 +62,7 @@ impl Assembler {
         fragments
     }
 
-    fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
+    fn serialize_message_data(&self, _message: &Message) -> Vec<u8> {
         unimplemented!("serialize_message_data");
     }
 }

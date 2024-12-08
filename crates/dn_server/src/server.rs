@@ -1,5 +1,5 @@
 use crossbeam_channel::{Receiver, Sender};
-use dn_controller::{ClientEvent, ServerCommand, ServerEvent};
+use dn_controller::{ServerCommand, ServerEvent};
 use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, NodeType, Packet, PacketType};
@@ -76,7 +76,7 @@ impl Server {
             PacketType::Nack(_) => {
                 println!("Server#{} received nack", self.id);
             }
-            PacketType::FloodRequest(mut flood_request) => {
+            PacketType::FloodRequest(flood_request) => {
                 println!("Server#{} received flood request", self.id);
                 self.send_flood_response(packet.session_id, flood_request);
             }
