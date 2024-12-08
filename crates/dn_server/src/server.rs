@@ -30,12 +30,8 @@ impl Server {
     }
 
     pub fn run(&mut self) {
-        loop {
-            if let Ok(packet) = self.packet_recv.recv() {
-                self.handle_packet(packet);
-            } else {
-                break;
-            }
+        while let Ok(packet) = self.packet_recv.recv() {
+            self.handle_packet(packet);
         }
     }
 
