@@ -3,6 +3,7 @@ on: [ pull_request ]
 
 env:
   RUSTFLAGS: "-Dwarnings"
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   clippy:

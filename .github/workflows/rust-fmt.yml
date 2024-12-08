@@ -1,5 +1,8 @@
-name: rust-fmt 
+name: rust-fmt
 on: [ pull_request ]
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   format:
