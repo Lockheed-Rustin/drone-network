@@ -154,7 +154,7 @@ impl SimulationController {
         self.add_sender(a, b)?;
         self.add_sender(b, a)?;
 
-        self.topology.add_edge(a, b, ())?;
+        self.topology.add_edge(a, b, ());
         Some(())
     }
 
