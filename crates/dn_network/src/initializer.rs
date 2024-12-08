@@ -206,7 +206,7 @@ fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> 
         node_types.insert(drone.id, NodeType::Drone);
     }
     for client in config.client.iter() {
-        if client.connected_drone_ids.len() < 1 || client.connected_drone_ids.len() > 2 {
+        if !(1..=2).contains(&client.connected_drone_ids.len()) {
             return Err(NetworkInitError::EdgeCount);
         }
         graph.add_node(client.id);
