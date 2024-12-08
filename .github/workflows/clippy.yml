@@ -5,17 +5,15 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  keys:
-    runs-on: ubuntu-latest
-    steps:
-    - name: give gitHub actions access to this repo 
-      uses: webfactory/ssh-agent@v0.5.4
-      with:
-        ssh-private-key: ${{ secrets.REPO_DEPLOY_KEY }}
   clippy:
-    needs: keys
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.REPO_DEPLOY_KEY }}
+      - run: git config --global url.ssh://git@github.com/.insteadOf https://github.com/
       - name: run clippy
         run: cargo clippy --all-targets --all-features
