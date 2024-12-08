@@ -235,7 +235,7 @@ impl SimulationController {
                 }
             };
         }
-        return true;
+        true
     }
 
     pub fn topology_crash_check(&mut self, id: NodeId) -> bool {
