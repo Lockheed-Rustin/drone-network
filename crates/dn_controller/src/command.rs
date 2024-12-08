@@ -7,6 +7,7 @@ pub enum ClientCommand {
     SendMessage(ClientBody),
     SendFragment,
     SendFloodRequest,
+    SendAck,
     RemoveSender(NodeId),
 }
 

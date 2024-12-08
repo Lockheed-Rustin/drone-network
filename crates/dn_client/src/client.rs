@@ -3,7 +3,7 @@ use dn_controller::{ClientCommand, ClientEvent};
 use std::collections::HashMap;
 
 use wg_2024::network::SourceRoutingHeader;
-use wg_2024::packet::{FloodRequest, FloodResponse, Fragment, NodeType, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, NodeType, PacketType};
 use wg_2024::{network::NodeId, packet::Packet};
 
 pub struct Client {
@@ -56,6 +56,7 @@ impl Client {
             ClientCommand::SendFloodRequest => self.send_flood_request(session_id),
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
             ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
+            ClientCommand::SendAck => self.send_ack(session_id),
             _ => {}
         }
     }
@@ -83,6 +84,38 @@ impl Client {
                 total_n_fragments: 1,
                 length: 0,
                 data: [0; 128],
+            }),
+        };
+        self.packet_send
+            .get(&6)
+            .unwrap()
+            .send(packet.clone())
+            .expect("Error in send");
+        self.controller_send
+            .send(ClientEvent::PacketSent(packet))
+            .expect("Error in controller_send");
+    }
+
+    fn send_ack(&self, session_id: u64) {
+        let routing_header = if self.id == 1 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![1, 6, 8, 3],
+            }
+        } else if self.id == 2 {
+            SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![2, 6, 7, 4],
+            }
+        } else {
+            panic!("error in topology sending fragment");
+        };
+
+        let packet = Packet {
+            routing_header,
+            session_id,
+            pack_type: PacketType::Ack(Ack {
+                fragment_index: 0,
             }),
         };
         self.packet_send
