@@ -260,15 +260,14 @@ fn init_topology(config: &config::Config) -> Result<Topology, NetworkInitError> 
         }
     }
 
-    if graph.is_directed() {
-        return Err(NetworkInitError::Directed);
-    }
-
     let mut topology = UnGraphMap::new();
     for node in graph.nodes() {
         topology.add_node(node);
     }
     for (a, b, _) in graph.all_edges() {
+        if !graph.contains_edge(b, a) {
+            return Err(NetworkInitError::Directed);
+        }
         topology.add_edge(a, b, ());
     }
     Ok(topology)
