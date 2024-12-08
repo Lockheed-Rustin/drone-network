@@ -208,6 +208,12 @@ impl SimulationController {
         }
     }
 
+    pub fn shortcut(&self, p: Packet) -> Option<()> {
+        let dest_id = p.routing_header.hops.last()?;
+        let sender = &self.nodes.get(&dest_id)?.packet_send;
+        sender.send(p).ok()
+    }
+
     // TODO: remove this after the fair
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?;
