@@ -7,10 +7,10 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.REPO_DEPLOY_KEY }}
       - run: git config --global url.ssh://git@github.com/.insteadOf https://github.com/
+      - uses: actions/checkout@v4
       - name: run cargo fmt
         run: cargo fmt --all --check --quiet
