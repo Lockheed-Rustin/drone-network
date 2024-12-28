@@ -197,16 +197,14 @@ impl SimulationController {
                 *pdr = new_pdr;
                 Some(())
             }
-            _ => return None,
+            _ => None,
         }
     }
 
     pub fn get_pdr(&self, drone_id: NodeId) -> Option<f32> {
         match &self.nodes.get(&drone_id)?.node_type {
-            NodeType::Drone { pdr, .. } => {
-                Some(*pdr)
-            }
-            _ =>  None,
+            NodeType::Drone { pdr, .. } => Some(*pdr),
+            _ => None,
         }
     }
 
@@ -233,7 +231,7 @@ impl SimulationController {
             match self.nodes[&node].node_type {
                 NodeType::Drone { .. } => {}
                 NodeType::Client { .. } => {
-                    if connected_nodes_count < 1 || connected_nodes_count > 2 {
+                    if !(1..=2).contains(&connected_nodes_count) {
                         return false;
                     }
                 }
@@ -244,7 +242,7 @@ impl SimulationController {
                 }
             };
         }
-        return true;
+        true
     }
 
     pub fn topology_crash_check(&mut self, id: NodeId) -> bool {
@@ -259,7 +257,7 @@ impl SimulationController {
             self.topology.add_edge(id, *neighbor, ());
         }
 
-        return valid;
+        valid
     }
 }
 

@@ -6,6 +6,7 @@ use wg_2024::packet::FRAGMENT_DSIZE as MAX_FRAGMENT_SIZE;
 
 /// The `Assembler` struct is responsible for tracking and reassembling fragmented messages.
 /// Each message is identified by a unique key consisting of a `(NodeId, session_id)` pair.
+#[derive(Default)]
 pub struct Assembler {
     in_progress_messages: HashMap<(NodeId, u64), MessageBuffer>,
 }
@@ -41,8 +42,7 @@ impl Assembler {
 
     pub fn serialize_message(&self, message: Message) -> Vec<Fragment> {
         let message_data = self.serialize_message_data(&message);
-        let total_fragments =
-            ((message_data.len() + MAX_FRAGMENT_SIZE - 1) / MAX_FRAGMENT_SIZE) as u64;
+        let total_fragments = message_data.len().div_ceil(MAX_FRAGMENT_SIZE) as u64;
 
         let mut fragments = Vec::new();
 

@@ -3,18 +3,20 @@ on: [ pull_request ]
 
 env:
   RUSTFLAGS: "-Dwarnings"
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
-  keys:
-    steps:
-    - name: give gitHub actions access to this repo 
-      uses: webfactory/ssh-agent@v0.5.4
-      with:
-        ssh-private-key: ${{ secrets.REPO_DEPLOY_KEY }}
   clippy:
-    needs: keys
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+                ${{ secrets.DRONE_NETWORK_KEY }}
+                ${{ secrets.DRONE_KEY }}
+      - run: git config --global url.ssh://git@github.com/.insteadOf https://github.com/
       - uses: actions/checkout@v4
       - name: run clippy
         run: cargo clippy --all-targets --all-features
