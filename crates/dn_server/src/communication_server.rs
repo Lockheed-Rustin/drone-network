@@ -1,14 +1,16 @@
+use std::collections::{HashMap, HashSet, VecDeque};
 use crossbeam_channel::{select, Receiver, Sender};
-use dn_controller::{ServerCommand, ServerEvent, Topology};
+use petgraph::prelude::UnGraphMap;
 use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
     ServerCommunicationBody,
 };
-use std::collections::{HashMap, HashSet};
+use dn_controller::{ServerCommand, ServerEvent};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, Packet, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
 
 type PendingFragments = HashMap<u64, Fragment>;
+type Topology = UnGraphMap<NodeId, ()>;
 
 pub struct CommunicationServer  {
     controller_send: Sender<ServerEvent>,
@@ -16,10 +18,10 @@ pub struct CommunicationServer  {
     packet_send: HashMap<NodeId, Sender<Packet>>,
     packet_recv: Receiver<Packet>,
 
-    id: NodeId,
+    pub id: NodeId,
     session_id_counter: u64,
     registered_clients: HashSet<NodeId>,
-    topology: Topology,
+    pub topology: Topology,
     assembler: Assembler,
 
     pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
@@ -53,7 +55,9 @@ impl CommunicationServer {
             select! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
-                        todo!(); // TODO!
+                        self.handle_command(cmd);
+                    } else {
+                        break;
                     }
                 },
                 recv(self.packet_recv) -> packet => {
@@ -66,6 +70,18 @@ impl CommunicationServer {
             }
         }
     }
+
+    fn handle_command(&mut self, command: ServerCommand) {
+        match command {
+            ServerCommand::AddSender(node_id, sender) => {
+                self.packet_send.insert(node_id, sender);
+            }
+            ServerCommand::RemoveSender(node_id) => {
+                self.packet_send.remove(&node_id);
+            }
+        }
+    }
+
 
     fn handle_packet(&mut self, packet: Packet) {
         let sender_id = packet.routing_header.hops[0];
@@ -149,15 +165,76 @@ impl CommunicationServer {
     }
 
     // source routing
-    fn source_routing(&self, to: NodeId) -> Vec<NodeId> {
-        // update_network_topology and then find a path to send the message
-        unimplemented!()
+    pub fn source_routing(&mut self, to: NodeId) -> Vec<NodeId> {
+        // todo!: currently doing this every time
+        self.update_network_topology();
+
+        // todo!: currently using a simple BFS
+        let mut visited = HashSet::new();
+        let mut parent_map = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        queue.push_back(self.id);
+        visited.insert(self.id);
+
+        while let Some(current) = queue.pop_front() {
+            if current == to {
+                let mut route = Vec::new();
+                let mut node = current;
+                while let Some(&parent) = parent_map.get(&node) {
+                    route.push(node);
+                    node = parent;
+                }
+                route.push(self.id);
+                route.reverse();
+                return route;
+            }
+
+            for neighbor in self.topology.neighbors(current) {
+                if visited.insert(neighbor) {
+                    parent_map.insert(neighbor, current);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        vec![]
+
     }
 
     fn update_network_topology(&mut self) {
         // follow network discovery protocol
         // update the topology of the network
-        unimplemented!()
+        // TODO!
+
+        // Univocal flood id
+        let flood_id = 0; // TODO!
+
+        let flood_request = FloodRequest {
+            flood_id,
+            initiator_id: self.id,
+            path_trace: vec![(self.id, NodeType::Server)],
+        };
+
+        let flood_request_packet = Packet {
+            pack_type: PacketType::FloodRequest(flood_request),
+            routing_header: SourceRoutingHeader {
+                hop_index: 1,
+                hops: vec![],
+            },
+            session_id: self.session_id_counter
+        };
+        self.session_id_counter += 1;
+
+        for (_, sender) in self.packet_send.iter() {
+            sender
+                .send(flood_request_packet.clone())
+                .expect("Error in send");
+        }
+
+        self.controller_send
+            .send(ServerEvent::PacketSent(flood_request_packet))
+            .expect("Error in controller_send");
     }
 
     // TODO!: should ignoring wrong messages be replaced by send_error?
