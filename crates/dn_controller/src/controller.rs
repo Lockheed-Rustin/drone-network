@@ -122,21 +122,21 @@ impl SimulationController {
             .collect()
     }
 
-    pub fn get_drone_sender(&self, id: NodeId) -> Option<Sender<DroneCommand>> {
+    fn get_drone_sender(&self, id: NodeId) -> Option<Sender<DroneCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Drone { sender, .. } => Some(sender.clone()),
             _ => None,
         }
     }
 
-    pub fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
+    fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Client { sender } => Some(sender.clone()),
             _ => None,
         }
     }
 
-    pub fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
+    fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Server { sender } => Some(sender.clone()),
             _ => None,
