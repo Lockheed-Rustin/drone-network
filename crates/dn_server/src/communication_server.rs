@@ -14,9 +14,9 @@ type Topology = UnGraphMap<NodeId, ()>;
 
 pub struct CommunicationServer  {
     controller_send: Sender<ServerEvent>,
-    controller_recv: Receiver<ServerCommand>,
+    pub controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
-    packet_recv: Receiver<Packet>,
+    pub packet_recv: Receiver<Packet>,
 
     pub id: NodeId,
     session_id_counter: u64,
@@ -51,6 +51,10 @@ impl CommunicationServer {
     }
 
     pub fn run(&mut self) {
+
+        // todo!: is it possible to do this now?
+        self.update_network_topology(); // first discovery of the network
+
         loop {
             select! {
                 recv(self.controller_recv) -> command => {
@@ -75,9 +79,11 @@ impl CommunicationServer {
         match command {
             ServerCommand::AddSender(node_id, sender) => {
                 self.packet_send.insert(node_id, sender);
+                self.update_network_topology(); // when adding a sender the topology needs to be updated
             }
             ServerCommand::RemoveSender(node_id) => {
                 self.packet_send.remove(&node_id);
+                self.update_network_topology(); // when removing a sender the topology needs to be updated
             }
         }
     }
@@ -91,7 +97,7 @@ impl CommunicationServer {
             }
             PacketType::Nack(nack) => self.handle_nack(nack),
             PacketType::Ack(ack) => self.handle_ack(ack, &packet.session_id),
-            PacketType::FloodRequest(f_req) => self.handle_flood_request(f_req),
+            PacketType::FloodRequest(f_req) => self.send_flood_response(f_req),
             PacketType::FloodResponse(f_res) => self.handle_flood_response(f_res),
         }
     }
@@ -124,19 +130,60 @@ impl CommunicationServer {
     fn handle_nack(&self, nack: Nack) {
         match nack.nack_type {
             // TODO!
-            NackType::ErrorInRouting(_) => { todo!() }
+            NackType::ErrorInRouting(_) => { todo!() } // aggiorna la topologia
             NackType::DestinationIsDrone => { todo!() }
             NackType::Dropped => { todo!() }
             NackType::UnexpectedRecipient(_) => { todo!() }
         }
     }
 
-    fn handle_flood_request(&self, request: FloodRequest) {
-        unimplemented!()
+    pub fn send_flood_response(&mut self, mut flood_request: FloodRequest) {
+        // todo!: to check
+        flood_request.path_trace.push((self.id, NodeType::Server));
+        let hops = flood_request
+            .path_trace
+            .iter()
+            .map(|(node_id, _)| *node_id)
+            .rev()
+            .collect();
+
+        let flood_response_packet = Packet {
+            pack_type: PacketType::FloodResponse(FloodResponse {
+                flood_id: flood_request.flood_id,
+                path_trace: flood_request.path_trace,
+            }),
+            routing_header: SourceRoutingHeader { hop_index: 1, hops },
+            session_id: self.session_id_counter,
+        };
+
+        self.session_id_counter += 1;
+
+        self.packet_send[&flood_response_packet.routing_header.hops[1]]
+            .send(flood_response_packet.clone())
+            .expect("Error in send");
+        self.controller_send
+            .send(ServerEvent::PacketSent(flood_response_packet))
+            .expect("Error in controller_send");
     }
 
-    fn handle_flood_response(&self, response: FloodResponse) {
-        unimplemented!()
+    fn handle_flood_response(&mut self, response: FloodResponse) {
+        // todo!: to test
+
+        for &(node_id, node_type) in &response.path_trace {
+            if !self.topology.contains_node(node_id) {
+                self.topology.add_node(node_id);
+            }
+        }
+
+        for window in response.path_trace.windows(2) {
+            let (node_a, _) = window[0];
+            let (node_b, _) = window[1];
+
+            if !self.topology.contains_edge(node_a, node_b) {
+                self.topology.add_edge(node_a, node_b, ());
+            }
+        }
+
     }
 
     fn handle_message(&mut self, message: Message, sender_id: NodeId) {
@@ -166,8 +213,6 @@ impl CommunicationServer {
 
     // source routing
     pub fn source_routing(&mut self, to: NodeId) -> Vec<NodeId> {
-        // todo!: currently doing this every time
-        self.update_network_topology();
 
         // todo!: currently using a simple BFS
         let mut visited = HashSet::new();
@@ -202,10 +247,9 @@ impl CommunicationServer {
 
     }
 
+    /// This function just send a flood request to update the server network topology
     fn update_network_topology(&mut self) {
-        // follow network discovery protocol
-        // update the topology of the network
-        // TODO!
+        // TODO! decide when to call it
 
         // Univocal flood id
         let flood_id = 0; // TODO!
@@ -314,14 +358,16 @@ impl CommunicationServer {
 
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
         let hops = self.source_routing(communication_message.to);
-        let routing_header = SourceRoutingHeader { hop_index: 1, hops };
-        let message: Message = Message::Server(ServerBody::ServerCommunication(
-            ServerCommunicationBody::MessageReceive(communication_message),
-        ));
-        let fragments = self.assembler.serialize_message(message);
+        if !hops.is_empty() {
+            let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+            let message: Message = Message::Server(ServerBody::ServerCommunication(
+                ServerCommunicationBody::MessageReceive(communication_message),
+            ));
+            let fragments = self.assembler.serialize_message(message);
 
-        self.send_fragments(self.session_id_counter, fragments, routing_header);
-        self.session_id_counter += 1;
+            self.send_fragments(self.session_id_counter, fragments, routing_header);
+            self.session_id_counter += 1;
+        }
     }
 
     fn registered_clients_list(&self, client_id: NodeId) -> Vec<NodeId> {
