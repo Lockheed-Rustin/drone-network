@@ -212,13 +212,8 @@ impl SimulationController {
 
     // --- clients ---
     fn client_send_message(&self, client_id: NodeId, dest: NodeId, body: ClientBody) -> Option<()> {
-        match &self.nodes.get(&client_id)?.node_type {
-            NodeType::Client { sender } => {
-                sender.send(ClientCommand::SendMessage(body, dest)).ok();
-                Some(())
-            }
-            _ => None,
-        }
+        let sender = self.get_client_sender(client_id)?;
+        sender.send(ClientCommand::SendMessage(body, dest)).ok()
     }
     pub fn client_send_request_server_type(
         &self,
