@@ -2,8 +2,8 @@ use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::collections::HashMap;
 use wg_2024::packet::{NodeType, Packet};
 use dn_controller::{ServerCommand, ServerEvent};
-use dn_server::communication_server::CommunicationServer;
-use dn_server::communication_server_topology::CommunicationServerNetworkTopology;
+use dn_server::communication_server_code::communication_server::CommunicationServer;
+use dn_server::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
 
 fn init_server() -> CommunicationServer {
     // receiving commands from controller

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use crossbeam_channel::{select, Receiver, Sender};
 use dn_message::{Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
 use dn_controller::{ServerCommand, ServerEvent};
@@ -6,10 +6,8 @@ use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
 use dn_message::ServerBody::RespServerType;
 use dn_message::ServerCommunicationBody::RespClientList;
-use crate::communication_server_topology::CommunicationServerNetworkTopology;
-use crate::session_manager::SessionManager;
-
-type PendingFragments = HashMap<u64, Fragment>;
+use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
+use crate::communication_server_code::session_manager::SessionManager;
 
 // TODO: I could save the paths instead of doing the source routing every time
 pub struct CommunicationServer  {
@@ -166,13 +164,14 @@ impl CommunicationServer {
             .rev()
             .collect();
 
+        let session_id = self.session_manager.get_and_increment_session_id_counter();
         let flood_response_packet = Packet {
             pack_type: PacketType::FloodResponse(FloodResponse {
                 flood_id: flood_request.flood_id,
                 path_trace: flood_request.path_trace,
             }),
             routing_header: SourceRoutingHeader { hop_index: 1, hops },
-            session_id: self.session_manager.get_and_increment_session_id_counter(),
+            session_id,
         };
 
         self.packet_send[&flood_response_packet.routing_header.hops[1]]
@@ -247,13 +246,14 @@ impl CommunicationServer {
             path_trace: vec![(self.id, NodeType::Server)],
         };
 
+        let session_id = self.session_manager.get_and_increment_session_id_counter();
         let flood_request_packet = Packet {
             pack_type: PacketType::FloodRequest(flood_request),
             routing_header: SourceRoutingHeader {
                 hop_index: 1,
                 hops: vec![],
             },
-            session_id: self.session_manager.get_and_increment_session_id_counter(),
+            session_id,
         };
 
         for (_, sender) in self.packet_send.iter() {
@@ -321,8 +321,9 @@ impl CommunicationServer {
         if !hops.is_empty() {
             let serialized_message = self.assembler.serialize_message(message);
             let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+            let session_id = self.session_manager.get_and_increment_session_id_counter();
             self.send_fragments(
-                self.session_manager.get_and_increment_session_id_counter(),
+                session_id,
                 serialized_message,
                 routing_header,
             );

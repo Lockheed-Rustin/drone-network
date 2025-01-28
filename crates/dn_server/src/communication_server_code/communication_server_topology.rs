@@ -87,3 +87,9 @@ impl CommunicationServerNetworkTopology {
 
     }
 }
+
+impl Default for CommunicationServerNetworkTopology {
+    fn default() -> CommunicationServerNetworkTopology {
+        Self::new()
+    }
+}
