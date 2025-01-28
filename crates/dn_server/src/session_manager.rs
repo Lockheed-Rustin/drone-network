@@ -16,6 +16,11 @@ impl SessionManager {
         }
     }
 
+    /// Adds a new session to the pending sessions map.
+    ///
+    /// This function takes a session ID and a list of fragments, and stores them in the
+    /// `pending_sessions` map. Each fragment is indexed by its fragment index within the session.
+    /// This helps keep track of the fragments associated with the session for handling acknowledgments.
     pub fn add_session(&mut self, session_id: u64, fragments: Vec<Fragment>) {
         let fragment_map: PendingFragments = fragments
             .into_iter()
@@ -38,11 +43,13 @@ impl SessionManager {
         }
     }
 
-    pub fn get_session_id_counter(&self) -> u64 {
-        self.session_id_counter
+    pub fn get_and_increment_session_id_counter(&mut self) -> u64 {
+        let res = self.session_id_counter;
+        self.session_id_counter += 1;
+        res
     }
 
-    pub fn increment_session_id_counter(&mut self) {
-        self.session_id_counter += 1;
+    pub fn get_session_id_counter(&self) -> u64 {
+        self.session_id_counter
     }
 }

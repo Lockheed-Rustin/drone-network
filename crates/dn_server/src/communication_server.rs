@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use crossbeam_channel::{select, Receiver, Sender};
-use dn_message::{
-    Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
-    ServerCommunicationBody,
-};
+use dn_message::{Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
 use dn_controller::{ServerCommand, ServerEvent};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
+use dn_message::ServerBody::RespServerType;
+use dn_message::ServerCommunicationBody::RespClientList;
 use crate::communication_server_topology::CommunicationServerNetworkTopology;
 use crate::session_manager::SessionManager;
 
@@ -20,18 +19,14 @@ pub struct CommunicationServer  {
     packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
 
-    // ids
     pub id: NodeId,
     flood_id_counter: u64,
     session_manager: SessionManager,
+    assembler: Assembler,
 
     pub network_topology: CommunicationServerNetworkTopology,
 
     registered_clients: HashSet<NodeId>,
-
-    assembler: Assembler,
-
-
 }
 
 impl CommunicationServer {
@@ -177,10 +172,8 @@ impl CommunicationServer {
                 path_trace: flood_request.path_trace,
             }),
             routing_header: SourceRoutingHeader { hop_index: 1, hops },
-            session_id: self.session_manager.get_session_id_counter(),
+            session_id: self.session_manager.get_and_increment_session_id_counter(),
         };
-
-        self.session_manager.increment_session_id_counter();
 
         self.packet_send[&flood_response_packet.routing_header.hops[1]]
             .send(flood_response_packet.clone())
@@ -242,6 +235,8 @@ impl CommunicationServer {
 
     /// This function just send a flood request to update the server network topology
     fn update_network_topology(&mut self) {
+        // TODO: maybe to move this function in Topology
+
         // Univocal flood id
         let flood_id = self.flood_id_counter;
         self.flood_id_counter += 1;
@@ -258,9 +253,8 @@ impl CommunicationServer {
                 hop_index: 1,
                 hops: vec![],
             },
-            session_id: self.session_manager.get_session_id_counter(),
+            session_id: self.session_manager.get_and_increment_session_id_counter(),
         };
-        self.session_manager.increment_session_id_counter();
 
         for (_, sender) in self.packet_send.iter() {
             sender
@@ -271,11 +265,6 @@ impl CommunicationServer {
         self.controller_send
             .send(ServerEvent::PacketSent(flood_request_packet))
             .expect("Error in controller_send");
-    }
-
-    // TODO!: should ignoring wrong messages be replaced by send_error?
-    fn send_error(&self, _destination: NodeId, _error_body: ServerBody) {
-        unimplemented!("send error message?");
     }
 
     fn send_ack(
@@ -306,6 +295,7 @@ impl CommunicationServer {
     fn send_packet(&self, packet: Packet) {
         // assuming hop index already set at 1
         // assuming the first node connected to the server exists (TODO: probably to check)
+        // TODO: to test
         let next_hop = packet.routing_header.hops[1];
         let sender = self.packet_send.get(&next_hop).unwrap();
         if let Err(e) = sender.send(packet) {
@@ -326,6 +316,20 @@ impl CommunicationServer {
         }
     }
 
+    fn send_message(&mut self, message: Message, to: NodeId) {
+        let hops = self.network_topology.source_routing(self.id, to);
+        if !hops.is_empty() {
+            let serialized_message = self.assembler.serialize_message(message);
+            let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+            self.send_fragments(
+                self.session_manager.get_and_increment_session_id_counter(),
+                serialized_message,
+                routing_header,
+            );
+        }
+        // TODO: what if hops is empty
+    }
+
     // possible actions:
 
     fn register_client(&mut self, client_id: NodeId) {
@@ -342,26 +346,36 @@ impl CommunicationServer {
 
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
         // TODO: to test
-        let hops = self.network_topology.source_routing(self.id, communication_message.to);
-        if !hops.is_empty() {
-            let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+        let to = communication_message.to;
+        if self.registered_clients.contains(&to) {
             let message: Message = Message::Server(ServerBody::ServerCommunication(
                 ServerCommunicationBody::MessageReceive(communication_message),
             ));
-            let fragments = self.assembler.serialize_message(message);
-
-            self.send_fragments(self.session_manager.get_session_id_counter(), fragments, routing_header);
-            self.session_manager.increment_session_id_counter();
+            self.send_message(message.clone(), to);
+        } else {
+            let message: Message = Message::Server(ServerBody::ServerCommunication(
+                ServerCommunicationBody::ErrWrongClientId
+            ));
+            self.send_message(message.clone(), to);
         }
     }
 
-    fn registered_clients_list(&self, client_id: NodeId) -> Vec<NodeId> {
-        unimplemented!("Send list of registered clients");
-        // use "serialize_message"
+    fn registered_clients_list(&mut self, client_id: NodeId) {
+        // TODO: to test
+        let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
+        let message = Message::Server(ServerBody::ServerCommunication(
+            RespClientList(
+                client_list
+            )
+        ));
+        self.send_message(message, client_id);
     }
 
-    fn send_server_type(&self, client_id: NodeId) {
-        unimplemented!("Send server type");
-        // use "serialize_message"
+    fn send_server_type(&mut self, client_id: NodeId) {
+        // TODO: to test
+        let message = Message::Server(
+            RespServerType(ServerType::Communication)
+        );
+        self.send_message(message, client_id);
     }
 }

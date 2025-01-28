@@ -95,7 +95,8 @@ mod tests {
 
         server.network_topology.node_types.insert(5, NodeType::Drone);
         server.network_topology.node_types.insert(7, NodeType::Drone);
-        // should pass through 5 now because it's a drone and the path is shorter
+        // should pass through 5 now because it's a drone and the path is shorter than the one passing
+        // through 7
         let route = server.network_topology.source_routing(server.id, 4);
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
