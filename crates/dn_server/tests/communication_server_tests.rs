@@ -34,7 +34,7 @@ fn init_server() -> CommunicationServer {
     c_s
 }
 
-fn init_topology(communication_server: &mut CommunicationServer) {
+fn init_topology(communication_server: &mut CommunicationServer)    {
     let mut topology = UnGraphMap::<NodeId, ()>::new();
 
     topology.add_node(1);
@@ -56,8 +56,10 @@ fn init_topology(communication_server: &mut CommunicationServer) {
 
 #[cfg(test)]
 mod tests {
-    use wg_2024::packet::{FloodRequest, NodeType, PacketType};
+    use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, PacketType};
     use super::*;
+
+    // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
 
     #[test]
     fn test_source_routing() {
@@ -108,6 +110,7 @@ mod tests {
 
         communication_server.send_flood_response(flood_request);
 
+        // tests the flood response
         if let Ok(sent_packet) = communication_server.packet_recv.try_recv() {
             if let PacketType::FloodResponse(flood_response) = sent_packet.pack_type {
                 assert_eq!(flood_response.flood_id, 42);
@@ -123,6 +126,7 @@ mod tests {
             panic!("No packet was sent");
         }
 
+        // tests the server event
         if let Ok(event) = controller_recv_event.try_recv() {
             if let ServerEvent::PacketSent(packet) = event {
                 if let PacketType::FloodResponse(flood_response) = packet.pack_type {
@@ -141,5 +145,34 @@ mod tests {
             panic!("No server event was generated");
         }
     }
+
+    #[test]
+    fn test_handle_flood_response() {
+        let mut server = init_server();
+
+        let flood_response = FloodResponse {
+            flood_id: 1,
+            path_trace: vec![
+                (1, NodeType::Server),
+                (2, NodeType::Drone),
+                (6, NodeType::Drone),
+                (7, NodeType::Client),
+            ],
+        };
+
+        assert!(!server.topology.contains_node(6));
+        assert!(!server.topology.contains_node(7));
+        assert!(!server.topology.contains_edge(2, 6));
+        assert!(!server.topology.contains_edge(6, 7));
+
+        server.handle_flood_response(flood_response);
+
+        assert!(server.topology.contains_node(6));
+        assert!(server.topology.contains_node(7));
+
+        assert!(server.topology.contains_edge(2, 6));
+        assert!(server.topology.contains_edge(6, 7));
+    }
+
 }
 

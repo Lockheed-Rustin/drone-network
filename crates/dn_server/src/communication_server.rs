@@ -10,9 +10,11 @@ use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
 
 type PendingFragments = HashMap<u64, Fragment>;
+//TODO: my topology doesn't save the information about each node type
 type Topology = UnGraphMap<NodeId, ()>;
 
 pub struct CommunicationServer  {
+    // channels
     controller_send: Sender<ServerEvent>,
     pub controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
@@ -20,8 +22,10 @@ pub struct CommunicationServer  {
 
     pub id: NodeId,
     session_id_counter: u64,
+    flood_id_counter: u64,
     registered_clients: HashSet<NodeId>,
     pub topology: Topology,
+    topology_nodes_type: HashMap<NodeId, NodeType>,
     assembler: Assembler,
 
     pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
@@ -43,8 +47,10 @@ impl CommunicationServer {
             packet_recv,
             id,
             session_id_counter: 0,
+            flood_id_counter:  0,
             registered_clients: HashSet::new(),
             topology: Topology::new(),
+            topology_nodes_type: HashMap::new(),
             assembler: Assembler::new(),
             pending_sessions: HashMap::new(),
         }
@@ -52,7 +58,6 @@ impl CommunicationServer {
 
     pub fn run(&mut self) {
 
-        // todo!: is it possible to do this now?
         self.update_network_topology(); // first discovery of the network
 
         loop {
@@ -75,6 +80,11 @@ impl CommunicationServer {
         }
     }
 
+    /// Handles incoming commands to modify the server's neighbors.
+    ///
+    /// This function processes commands sent to the server, allowing the addition or removal
+    /// of packet senders. When a sender is added or removed, the network topology is
+    /// automatically updated to reflect the changes.
     fn handle_command(&mut self, command: ServerCommand) {
         match command {
             ServerCommand::AddSender(node_id, sender) => {
@@ -88,12 +98,19 @@ impl CommunicationServer {
         }
     }
 
-
+    /// Processes an incoming packet and performs the corresponding action.
+    ///
+    /// This function handles packets received by the server, determining the type of packet
+    /// and delegating the appropriate action based on its content. The actions may involve
+    /// processing message fragments, handling acknowledgments or negative acknowledgments,
+    /// or responding to flood requests and responses.
     fn handle_packet(&mut self, packet: Packet) {
+        // TODO: check if the packet is for you (we decided to assume that you are the receiver
+        // but what if I use the wrong hops-vector later?)
         let sender_id = packet.routing_header.hops[0];
         match packet.pack_type {
             PacketType::MsgFragment(f) => {
-                self.handle_fragment(f, sender_id, packet.session_id, packet.routing_header)
+                self.handle_fragment(f, sender_id, packet.session_id)
             }
             PacketType::Nack(nack) => self.handle_nack(nack),
             PacketType::Ack(ack) => self.handle_ack(ack, &packet.session_id),
@@ -102,12 +119,17 @@ impl CommunicationServer {
         }
     }
 
+    /// Processes a message fragment and handles its acknowledgment.
+    ///
+    /// This function processes an incoming message fragment by attempting to assemble it into a
+    /// complete message. If the message is successfully assembled, it delegates the message
+    /// handling to the appropriate method. Regardless of the assembly result, it sends an
+    /// acknowledgment for the processed fragment.
     fn handle_fragment(
         &mut self,
         f: Fragment,
         sender_id: NodeId,
         session_id: u64,
-        routing_header: SourceRoutingHeader,
     ) {
         if let Some(message) = self
             .assembler
@@ -115,9 +137,14 @@ impl CommunicationServer {
         {
             self.handle_message(message, sender_id);
         }
-        self.send_ack(f, routing_header, session_id);
+        self.send_ack(f, sender_id, session_id);
     }
 
+    /// Processes an acknowledgment for a specific session.
+    ///
+    /// This function handles an incoming acknowledgment by removing the corresponding fragment
+    /// from the list of pending fragments associated with a session. If all fragments for the
+    /// session are acknowledged, the session is removed from the pending sessions.
     fn handle_ack(&mut self, ack: Ack, session_id: &u64) {
         if let Some(fragment_map) = self.pending_sessions.get_mut(session_id) {
             fragment_map.remove(&ack.fragment_index);
@@ -137,8 +164,19 @@ impl CommunicationServer {
         }
     }
 
+    /// Sends a flood response packet in reply to a flood request.
+    ///
+    /// This function creates a flood response packet based on the received flood request, updating
+    /// the path trace to include the server's ID. It reverses the path trace to determine the
+    /// return path and sends the response to the next node in the return path. Additionally, it
+    /// notifies the controller about the sent packet.
+    ///
+    /// # Notes
+    /// - The call to `send` on the `packet_send` for the next hop may panic if the channel is closed.
+    ///   This should not happen unless there are unexpected issues with the communication channels.
+    /// - Similarly, the call to `send` on the `controller_send` channel may panic if the channel is
+    ///   unexpectedly closed.
     pub fn send_flood_response(&mut self, mut flood_request: FloodRequest) {
-        // todo!: to check
         flood_request.path_trace.push((self.id, NodeType::Server));
         let hops = flood_request
             .path_trace
@@ -166,13 +204,20 @@ impl CommunicationServer {
             .expect("Error in controller_send");
     }
 
-    fn handle_flood_response(&mut self, response: FloodResponse) {
-        // todo!: to test
+    /// Handles a flood response packet by updating the network topology.
+    ///
+    /// This function processes the received flood response to update the local network topology.
+    /// It adds any new nodes and edges to the topology based on the path trace contained in the
+    /// response. For each pair of consecutive nodes in the path trace, it checks if the nodes and
+    /// their connecting edge are already present in the topology. If not, they are added.
+    pub fn handle_flood_response(&mut self, response: FloodResponse) {
 
         for &(node_id, node_type) in &response.path_trace {
             if !self.topology.contains_node(node_id) {
                 self.topology.add_node(node_id);
             }
+            self.topology_nodes_type.entry(node_id)
+                .or_insert(node_type);
         }
 
         for window in response.path_trace.windows(2) {
@@ -186,6 +231,10 @@ impl CommunicationServer {
 
     }
 
+    /// Handles incoming messages and executes the appropriate actions based on the message type.
+    /// Processes client requests, including server type queries, client registration,
+    /// message forwarding, and client list requests. Ignores messages from other servers or for
+    /// a content server.
     fn handle_message(&mut self, message: Message, sender_id: NodeId) {
         match message {
             Message::Client(cb) => {
@@ -212,9 +261,11 @@ impl CommunicationServer {
     }
 
     // source routing
-    pub fn source_routing(&mut self, to: NodeId) -> Vec<NodeId> {
+    pub fn source_routing(&self, to: NodeId) -> Vec<NodeId> {
 
         // todo!: currently using a simple BFS
+        // TODO: I have to change the topology to save the type of the nodes and to be sure to not
+        // use a server or a client in the path
         let mut visited = HashSet::new();
         let mut parent_map = HashMap::new();
         let mut queue = VecDeque::new();
@@ -249,10 +300,9 @@ impl CommunicationServer {
 
     /// This function just send a flood request to update the server network topology
     fn update_network_topology(&mut self) {
-        // TODO! decide when to call it
-
         // Univocal flood id
-        let flood_id = 0; // TODO!
+        let flood_id = self.flood_id_counter;
+        self.flood_id_counter += 1;
 
         let flood_request = FloodRequest {
             flood_id,
@@ -282,30 +332,26 @@ impl CommunicationServer {
     }
 
     // TODO!: should ignoring wrong messages be replaced by send_error?
-    fn send_error(&self, destination: NodeId, error_body: ServerBody) {
+    fn send_error(&self, _destination: NodeId, _error_body: ServerBody) {
         unimplemented!("send error message?");
     }
 
     fn send_ack(
-        &self,
+        &mut self,
         fragment: Fragment,
-        mut sender_routing_header: SourceRoutingHeader,
+        to: NodeId,
         session_id: u64,
     ) {
+        // TODO: to test
+
         let ack = PacketType::Ack(Ack {
             fragment_index: fragment.fragment_index,
         });
-        let hops = sender_routing_header
-            .hops
-            .iter()
-            .cloned()
-            .rev()
-            .collect::<Vec<NodeId>>();
+        let hops = self.source_routing(to);
 
         let packet = Packet {
             pack_type: ack,
             routing_header: SourceRoutingHeader {
-                // TODO: just reverse the path or calculate a new path?
                 hop_index: 1,
                 hops,
             },
@@ -357,6 +403,7 @@ impl CommunicationServer {
     }
 
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
+        // TODO: to test
         let hops = self.source_routing(communication_message.to);
         if !hops.is_empty() {
             let routing_header = SourceRoutingHeader { hop_index: 1, hops };
