@@ -2,7 +2,7 @@ use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::collections::HashMap;
 use petgraph::prelude::UnGraphMap;
 use wg_2024::network::NodeId;
-use wg_2024::packet::Packet;
+use wg_2024::packet::{NodeType, Packet};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_server::communication_server::CommunicationServer;
 
@@ -42,15 +42,27 @@ fn init_topology(communication_server: &mut CommunicationServer)    {
     topology.add_node(3);
     topology.add_node(4);
     topology.add_node(5);
+    topology.add_node(6);
+    topology.add_node(7);
 
     topology.add_edge(1, 2, ());
     topology.add_edge(2, 3, ());
-    topology.add_edge(3, 4, ());
+    topology.add_edge(3, 7, ());
+    topology.add_edge(7, 4, ());
     topology.add_edge(4, 5, ());
     topology.add_edge(1, 5, ());
     topology.add_edge(3,  1, ());
+    topology.add_edge(3, 6, ());
 
     communication_server.topology = topology;
+    communication_server.topology_nodes_type.insert(1, NodeType::Server);
+    communication_server.topology_nodes_type.insert(2, NodeType::Drone);
+    communication_server.topology_nodes_type.insert(3, NodeType::Drone);
+    communication_server.topology_nodes_type.insert(4, NodeType::Drone);
+    communication_server.topology_nodes_type.insert(5, NodeType::Client);
+    communication_server.topology_nodes_type.insert(6, NodeType::Client);
+    communication_server.topology_nodes_type.insert(6, NodeType::Drone);
+
 
 }
 
@@ -76,6 +88,23 @@ mod tests {
         assert_eq!(route[0], 1);
         assert_eq!(route[1], 3);
 
+        let route = server.source_routing(4);
+        // should avoid passing through 5 because it's a client
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 3);
+        assert_eq!(route[2], 7);
+        assert_eq!(route[3], 4);
+
+        server.topology_nodes_type.insert(7, NodeType::Server);
+        let route = server.source_routing(4);
+        // should avoid passing through 5 because it's a client, but also through 7 because it's a
+        // server. So the path is empty
+        assert!(route.is_empty());
+
+        server.topology_nodes_type.insert(5, NodeType::Drone);
+        server.topology_nodes_type.insert(7, NodeType::Drone);
+        // should pass through 5 now because it's a drone and the path is shorter
         let route = server.source_routing(4);
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
@@ -155,23 +184,28 @@ mod tests {
             path_trace: vec![
                 (1, NodeType::Server),
                 (2, NodeType::Drone),
-                (6, NodeType::Drone),
-                (7, NodeType::Client),
+                (25, NodeType::Drone),
+                (26, NodeType::Client),
             ],
         };
 
-        assert!(!server.topology.contains_node(6));
-        assert!(!server.topology.contains_node(7));
-        assert!(!server.topology.contains_edge(2, 6));
-        assert!(!server.topology.contains_edge(6, 7));
+        assert!(!server.topology.contains_node(25));
+        assert!(!server.topology.contains_node(26));
+        assert!(!server.topology.contains_edge(2, 25));
+        assert!(!server.topology.contains_edge(25, 26));
+        assert!(!server.topology_nodes_type.contains_key(&25));
+        assert!(!server.topology_nodes_type.contains_key(&26));
 
         server.handle_flood_response(flood_response);
 
-        assert!(server.topology.contains_node(6));
-        assert!(server.topology.contains_node(7));
+        assert!(server.topology.contains_node(25));
+        assert!(server.topology.contains_node(26));
 
-        assert!(server.topology.contains_edge(2, 6));
-        assert!(server.topology.contains_edge(6, 7));
+        assert!(server.topology.contains_edge(2, 25));
+        assert!(server.topology.contains_edge(25, 26));
+
+        assert_eq!(server.topology_nodes_type.get(&25), Some(&NodeType::Drone));
+        assert_eq!(server.topology_nodes_type.get(&26), Some(&NodeType::Client));
     }
 
 }

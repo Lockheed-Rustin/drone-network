@@ -25,7 +25,7 @@ pub struct CommunicationServer  {
     flood_id_counter: u64,
     registered_clients: HashSet<NodeId>,
     pub topology: Topology,
-    topology_nodes_type: HashMap<NodeId, NodeType>,
+    pub topology_nodes_type: HashMap<NodeId, NodeType>,
     assembler: Assembler,
 
     pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
@@ -210,6 +210,7 @@ impl CommunicationServer {
     /// It adds any new nodes and edges to the topology based on the path trace contained in the
     /// response. For each pair of consecutive nodes in the path trace, it checks if the nodes and
     /// their connecting edge are already present in the topology. If not, they are added.
+    /// It also saves the type of each node in `topology_nodes_type`.
     pub fn handle_flood_response(&mut self, response: FloodResponse) {
 
         for &(node_id, node_type) in &response.path_trace {
@@ -264,8 +265,6 @@ impl CommunicationServer {
     pub fn source_routing(&self, to: NodeId) -> Vec<NodeId> {
 
         // todo!: currently using a simple BFS
-        // TODO: I have to change the topology to save the type of the nodes and to be sure to not
-        // use a server or a client in the path
         let mut visited = HashSet::new();
         let mut parent_map = HashMap::new();
         let mut queue = VecDeque::new();
@@ -288,6 +287,14 @@ impl CommunicationServer {
 
             for neighbor in self.topology.neighbors(current) {
                 if visited.insert(neighbor) {
+                    if neighbor != to && neighbor != self.id {
+                        if let Some(node_type) = self.topology_nodes_type.get(&neighbor) {
+                            if *node_type != NodeType::Drone {
+                                continue; // I avoid passing through nodes that are not drones
+                            }
+                        }
+                    }
+
                     parent_map.insert(neighbor, current);
                     queue.push_back(neighbor);
                 }
