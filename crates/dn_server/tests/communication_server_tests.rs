@@ -1,10 +1,9 @@
 use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::collections::HashMap;
-use petgraph::prelude::UnGraphMap;
-use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_server::communication_server::CommunicationServer;
+use dn_server::communication_server_topology::CommunicationServerNetworkTopology;
 
 fn init_server() -> CommunicationServer {
     // receiving commands from controller
@@ -35,34 +34,26 @@ fn init_server() -> CommunicationServer {
 }
 
 fn init_topology(communication_server: &mut CommunicationServer)    {
-    let mut topology = UnGraphMap::<NodeId, ()>::new();
+    let mut topology = CommunicationServerNetworkTopology::new();
 
-    topology.add_node(1);
-    topology.add_node(2);
-    topology.add_node(3);
-    topology.add_node(4);
-    topology.add_node(5);
-    topology.add_node(6);
-    topology.add_node(7);
+    topology.add_node(1, NodeType::Server);
+    topology.add_node(2, NodeType::Drone);
+    topology.add_node(3, NodeType::Drone);
+    topology.add_node(4, NodeType::Drone);
+    topology.add_node(5, NodeType::Client);
+    topology.add_node(6, NodeType::Client);
+    topology.add_node(7, NodeType::Drone);
 
-    topology.add_edge(1, 2, ());
-    topology.add_edge(2, 3, ());
-    topology.add_edge(3, 7, ());
-    topology.add_edge(7, 4, ());
-    topology.add_edge(4, 5, ());
-    topology.add_edge(1, 5, ());
-    topology.add_edge(3,  1, ());
-    topology.add_edge(3, 6, ());
+    topology.add_edge(1, 2);
+    topology.add_edge(2, 3);
+    topology.add_edge(3, 7);
+    topology.add_edge(7, 4);
+    topology.add_edge(4, 5);
+    topology.add_edge(1, 5);
+    topology.add_edge(3, 1);
+    topology.add_edge(3, 6);
 
-    communication_server.topology = topology;
-    communication_server.topology_nodes_type.insert(1, NodeType::Server);
-    communication_server.topology_nodes_type.insert(2, NodeType::Drone);
-    communication_server.topology_nodes_type.insert(3, NodeType::Drone);
-    communication_server.topology_nodes_type.insert(4, NodeType::Drone);
-    communication_server.topology_nodes_type.insert(5, NodeType::Client);
-    communication_server.topology_nodes_type.insert(6, NodeType::Client);
-    communication_server.topology_nodes_type.insert(6, NodeType::Drone);
-
+    communication_server.network_topology = topology;
 
 }
 
@@ -77,18 +68,18 @@ mod tests {
     fn test_source_routing() {
         let mut server = init_server();
 
-        let route = server.source_routing(1);
+        let route = server.network_topology.source_routing(server.id, 1);
 
         assert!(!route.is_empty());
         assert_eq!(route[0], server.id);
 
-        let route = server.source_routing(3);
+        let route = server.network_topology.source_routing(server.id, 3);
 
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
         assert_eq!(route[1], 3);
 
-        let route = server.source_routing(4);
+        let route = server.network_topology.source_routing(server.id, 4);
         // should avoid passing through 5 because it's a client
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
@@ -96,16 +87,16 @@ mod tests {
         assert_eq!(route[2], 7);
         assert_eq!(route[3], 4);
 
-        server.topology_nodes_type.insert(7, NodeType::Server);
-        let route = server.source_routing(4);
+        server.network_topology.node_types.insert(7, NodeType::Server);
+        let route = server.network_topology.source_routing(server.id, 4);
         // should avoid passing through 5 because it's a client, but also through 7 because it's a
         // server. So the path is empty
         assert!(route.is_empty());
 
-        server.topology_nodes_type.insert(5, NodeType::Drone);
-        server.topology_nodes_type.insert(7, NodeType::Drone);
+        server.network_topology.node_types.insert(5, NodeType::Drone);
+        server.network_topology.node_types.insert(7, NodeType::Drone);
         // should pass through 5 now because it's a drone and the path is shorter
-        let route = server.source_routing(4);
+        let route = server.network_topology.source_routing(server.id, 4);
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
         assert_eq!(route[1], 5);
@@ -189,23 +180,23 @@ mod tests {
             ],
         };
 
-        assert!(!server.topology.contains_node(25));
-        assert!(!server.topology.contains_node(26));
-        assert!(!server.topology.contains_edge(2, 25));
-        assert!(!server.topology.contains_edge(25, 26));
-        assert!(!server.topology_nodes_type.contains_key(&25));
-        assert!(!server.topology_nodes_type.contains_key(&26));
+        assert!(!server.network_topology.graph.contains_node(25));
+        assert!(!server.network_topology.graph.contains_node(26));
+        assert!(!server.network_topology.graph.contains_edge(2, 25));
+        assert!(!server.network_topology.graph.contains_edge(25, 26));
+        assert!(!server.network_topology.node_types.contains_key(&25));
+        assert!(!server.network_topology.node_types.contains_key(&26));
 
         server.handle_flood_response(flood_response);
 
-        assert!(server.topology.contains_node(25));
-        assert!(server.topology.contains_node(26));
+        assert!(server.network_topology.graph.contains_node(25));
+        assert!(server.network_topology.graph.contains_node(26));
 
-        assert!(server.topology.contains_edge(2, 25));
-        assert!(server.topology.contains_edge(25, 26));
+        assert!(server.network_topology.graph.contains_edge(2, 25));
+        assert!(server.network_topology.graph.contains_edge(25, 26));
 
-        assert_eq!(server.topology_nodes_type.get(&25), Some(&NodeType::Drone));
-        assert_eq!(server.topology_nodes_type.get(&26), Some(&NodeType::Client));
+        assert_eq!(server.network_topology.node_types.get(&25), Some(&NodeType::Drone));
+        assert_eq!(server.network_topology.node_types.get(&26), Some(&NodeType::Client));
     }
 
 }

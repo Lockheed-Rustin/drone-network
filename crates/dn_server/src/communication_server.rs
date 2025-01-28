@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use crossbeam_channel::{select, Receiver, Sender};
-use petgraph::prelude::UnGraphMap;
 use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
     ServerCommunicationBody,
@@ -8,11 +7,12 @@ use dn_message::{
 use dn_controller::{ServerCommand, ServerEvent};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType};
+use crate::communication_server_topology::CommunicationServerNetworkTopology;
+use crate::session_manager::SessionManager;
 
 type PendingFragments = HashMap<u64, Fragment>;
-//TODO: my topology doesn't save the information about each node type
-type Topology = UnGraphMap<NodeId, ()>;
 
+// TODO: I could save the paths instead of doing the source routing every time
 pub struct CommunicationServer  {
     // channels
     controller_send: Sender<ServerEvent>,
@@ -20,15 +20,17 @@ pub struct CommunicationServer  {
     packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
 
+    // ids
     pub id: NodeId,
-    session_id_counter: u64,
     flood_id_counter: u64,
+    session_manager: SessionManager,
+
+    pub network_topology: CommunicationServerNetworkTopology,
+
     registered_clients: HashSet<NodeId>,
-    pub topology: Topology,
-    pub topology_nodes_type: HashMap<NodeId, NodeType>,
+
     assembler: Assembler,
 
-    pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
 
 }
 
@@ -46,13 +48,11 @@ impl CommunicationServer {
             packet_send,
             packet_recv,
             id,
-            session_id_counter: 0,
-            flood_id_counter:  0,
+            flood_id_counter: 0,
+            session_manager: SessionManager::new(),
             registered_clients: HashSet::new(),
-            topology: Topology::new(),
-            topology_nodes_type: HashMap::new(),
+            network_topology: CommunicationServerNetworkTopology::new(),
             assembler: Assembler::new(),
-            pending_sessions: HashMap::new(),
         }
     }
 
@@ -113,7 +113,7 @@ impl CommunicationServer {
                 self.handle_fragment(f, sender_id, packet.session_id)
             }
             PacketType::Nack(nack) => self.handle_nack(nack),
-            PacketType::Ack(ack) => self.handle_ack(ack, &packet.session_id),
+            PacketType::Ack(ack) => self.session_manager.handle_ack(ack, &packet.session_id),
             PacketType::FloodRequest(f_req) => self.send_flood_response(f_req),
             PacketType::FloodResponse(f_res) => self.handle_flood_response(f_res),
         }
@@ -138,20 +138,6 @@ impl CommunicationServer {
             self.handle_message(message, sender_id);
         }
         self.send_ack(f, sender_id, session_id);
-    }
-
-    /// Processes an acknowledgment for a specific session.
-    ///
-    /// This function handles an incoming acknowledgment by removing the corresponding fragment
-    /// from the list of pending fragments associated with a session. If all fragments for the
-    /// session are acknowledged, the session is removed from the pending sessions.
-    fn handle_ack(&mut self, ack: Ack, session_id: &u64) {
-        if let Some(fragment_map) = self.pending_sessions.get_mut(session_id) {
-            fragment_map.remove(&ack.fragment_index);
-            if fragment_map.is_empty() {
-                self.pending_sessions.remove(session_id);
-            }
-        }
     }
 
     fn handle_nack(&self, nack: Nack) {
@@ -191,10 +177,10 @@ impl CommunicationServer {
                 path_trace: flood_request.path_trace,
             }),
             routing_header: SourceRoutingHeader { hop_index: 1, hops },
-            session_id: self.session_id_counter,
+            session_id: self.session_manager.get_session_id_counter(),
         };
 
-        self.session_id_counter += 1;
+        self.session_manager.increment_session_id_counter();
 
         self.packet_send[&flood_response_packet.routing_header.hops[1]]
             .send(flood_response_packet.clone())
@@ -214,20 +200,13 @@ impl CommunicationServer {
     pub fn handle_flood_response(&mut self, response: FloodResponse) {
 
         for &(node_id, node_type) in &response.path_trace {
-            if !self.topology.contains_node(node_id) {
-                self.topology.add_node(node_id);
-            }
-            self.topology_nodes_type.entry(node_id)
-                .or_insert(node_type);
+            self.network_topology.add_node(node_id, node_type);
         }
 
         for window in response.path_trace.windows(2) {
             let (node_a, _) = window[0];
             let (node_b, _) = window[1];
-
-            if !self.topology.contains_edge(node_a, node_b) {
-                self.topology.add_edge(node_a, node_b, ());
-            }
+            self.network_topology.add_edge(node_a, node_b);
         }
 
     }
@@ -261,50 +240,6 @@ impl CommunicationServer {
         }
     }
 
-    // source routing
-    pub fn source_routing(&self, to: NodeId) -> Vec<NodeId> {
-
-        // todo!: currently using a simple BFS
-        let mut visited = HashSet::new();
-        let mut parent_map = HashMap::new();
-        let mut queue = VecDeque::new();
-
-        queue.push_back(self.id);
-        visited.insert(self.id);
-
-        while let Some(current) = queue.pop_front() {
-            if current == to {
-                let mut route = Vec::new();
-                let mut node = current;
-                while let Some(&parent) = parent_map.get(&node) {
-                    route.push(node);
-                    node = parent;
-                }
-                route.push(self.id);
-                route.reverse();
-                return route;
-            }
-
-            for neighbor in self.topology.neighbors(current) {
-                if visited.insert(neighbor) {
-                    if neighbor != to && neighbor != self.id {
-                        if let Some(node_type) = self.topology_nodes_type.get(&neighbor) {
-                            if *node_type != NodeType::Drone {
-                                continue; // I avoid passing through nodes that are not drones
-                            }
-                        }
-                    }
-
-                    parent_map.insert(neighbor, current);
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        vec![]
-
-    }
-
     /// This function just send a flood request to update the server network topology
     fn update_network_topology(&mut self) {
         // Univocal flood id
@@ -323,9 +258,9 @@ impl CommunicationServer {
                 hop_index: 1,
                 hops: vec![],
             },
-            session_id: self.session_id_counter
+            session_id: self.session_manager.get_session_id_counter(),
         };
-        self.session_id_counter += 1;
+        self.session_manager.increment_session_id_counter();
 
         for (_, sender) in self.packet_send.iter() {
             sender
@@ -354,7 +289,7 @@ impl CommunicationServer {
         let ack = PacketType::Ack(Ack {
             fragment_index: fragment.fragment_index,
         });
-        let hops = self.source_routing(to);
+        let hops = self.network_topology.source_routing(self.id, to);
 
         let packet = Packet {
             pack_type: ack,
@@ -379,11 +314,7 @@ impl CommunicationServer {
     }
 
     fn send_fragments(&mut self, session_id: u64, fragments: Vec<Fragment>, routing_header: SourceRoutingHeader) {
-        let fragment_map: PendingFragments = fragments
-            .iter()
-            .map(|f| (f.fragment_index, f.clone()))
-            .collect();
-        self.pending_sessions.insert(session_id, fragment_map);
+        self.session_manager.add_session(session_id, fragments.clone());
 
         for fragment in fragments {
             let packet = Packet {
@@ -411,7 +342,7 @@ impl CommunicationServer {
 
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
         // TODO: to test
-        let hops = self.source_routing(communication_message.to);
+        let hops = self.network_topology.source_routing(self.id, communication_message.to);
         if !hops.is_empty() {
             let routing_header = SourceRoutingHeader { hop_index: 1, hops };
             let message: Message = Message::Server(ServerBody::ServerCommunication(
@@ -419,8 +350,8 @@ impl CommunicationServer {
             ));
             let fragments = self.assembler.serialize_message(message);
 
-            self.send_fragments(self.session_id_counter, fragments, routing_header);
-            self.session_id_counter += 1;
+            self.send_fragments(self.session_manager.get_session_id_counter(), fragments, routing_header);
+            self.session_manager.increment_session_id_counter();
         }
     }
 
