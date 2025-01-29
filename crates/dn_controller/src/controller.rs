@@ -1,6 +1,6 @@
 use crate::{ClientCommand, ClientEvent, ServerCommand, ServerEvent};
 use crossbeam_channel::{Receiver, Sender};
-use dn_message::{ClientBody, ClientCommunicationBody, ClientContentBody, CommunicationMessage};
+use dn_message::ClientBody;
 use petgraph::algo::connected_components;
 use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
@@ -133,13 +133,6 @@ impl SimulationController {
     fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Client { sender } => Some(sender.clone()),
-            _ => None,
-        }
-    }
-
-    fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
-        match &self.nodes.get(&id)?.node_type {
-            NodeType::Server { sender } => Some(sender.clone()),
             _ => None,
         }
     }
