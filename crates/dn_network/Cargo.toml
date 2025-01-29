@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 crossbeam-channel = "0.5.13"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
-drone = { git = "https://github.com/Lockheed-Rustin/drone.git", features = [
+lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git", features = [
     "sounds",
 ] }
 dn_controller = { path = "../dn_controller" }
