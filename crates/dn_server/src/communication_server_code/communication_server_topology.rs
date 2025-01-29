@@ -6,7 +6,7 @@ use wg_2024::packet::NodeType;
 type Topology = UnGraphMap<NodeId, ()>;
 
 pub struct CommunicationServerNetworkTopology {
-    pub graph: Topology,
+    graph: Topology,
     pub node_types: HashMap<NodeId, NodeType>,
 }
 
@@ -32,6 +32,10 @@ impl CommunicationServerNetworkTopology {
         }
     }
 
+    pub fn remove_edge(&mut self, node_a: NodeId, node_b: NodeId) {
+        self.graph.remove_edge(node_a, node_b);
+    }
+
     pub fn contains_node(&self, node_id: NodeId) -> bool {
         self.graph.contains_node(node_id)
     }
@@ -47,6 +51,7 @@ impl CommunicationServerNetworkTopology {
     pub fn source_routing(&self, from: NodeId, to: NodeId) -> Vec<NodeId> {
 
         // todo!: currently using a simple BFS
+        // it could use `astar` with pdr as weight
         let mut visited = HashSet::new();
         let mut parent_map = HashMap::new();
         let mut queue = VecDeque::new();

@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use wg_2024::network::NodeId;
 use wg_2024::packet::{Ack, Fragment};
 
 type PendingFragments = HashMap<u64, Fragment>;
 
 pub struct SessionManager {
     session_id_counter: u64,
-    pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
+    pub pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
+    pub pending_sessions_destination: HashMap<u64, NodeId> // session_id -> destination_id: NodeId
 }
 
 impl SessionManager {
@@ -13,6 +15,7 @@ impl SessionManager {
         Self {
             session_id_counter: 0,
             pending_sessions: HashMap::new(),
+            pending_sessions_destination: HashMap::new()
         }
     }
 
@@ -21,12 +24,13 @@ impl SessionManager {
     /// This function takes a session ID and a list of fragments, and stores them in the
     /// `pending_sessions` map. Each fragment is indexed by its fragment index within the session.
     /// This helps keep track of the fragments associated with the session for handling acknowledgments.
-    pub fn add_session(&mut self, session_id: u64, fragments: Vec<Fragment>) {
+    pub fn add_session(&mut self, session_id: u64, fragments: Vec<Fragment>, dest: NodeId) {
         let fragment_map: PendingFragments = fragments
             .into_iter()
             .map(|f| (f.fragment_index, f))
             .collect();
         self.pending_sessions.insert(session_id, fragment_map);
+        self.pending_sessions_destination.insert(session_id, dest);
     }
 
     /// Processes an acknowledgment for a specific session.
@@ -39,8 +43,17 @@ impl SessionManager {
             fragment_map.remove(&ack.fragment_index);
             if fragment_map.is_empty() {
                 self.pending_sessions.remove(session_id);
+                self.pending_sessions_destination.remove(session_id);
             }
         }
+    }
+
+    pub fn recover_fragment(&self, session_id: u64, fragment_index: u64) -> Option<(Fragment, u8)> {
+        let pending_fragments = self.pending_sessions.get(&session_id)?;
+        let node = *self.pending_sessions_destination.get(&session_id)?;
+        let fragment = pending_fragments.get(&fragment_index)?.clone();
+
+        Some((fragment, node))
     }
 
     pub fn get_and_increment_session_id_counter(&mut self) -> u64 {

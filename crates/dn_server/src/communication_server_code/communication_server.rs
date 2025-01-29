@@ -10,6 +10,9 @@ use crate::communication_server_code::communication_server_topology::Communicati
 use crate::communication_server_code::session_manager::SessionManager;
 
 // TODO: I could save the paths instead of doing the source routing every time
+// TODO: I should check if I send to the SC all the info he wants (PacketReceived, MessageAssembled, MessageFragmented, PacketSent)
+// TODO: check that the destination of a path is not a drone
+// TODO: remove all the println
 pub struct CommunicationServer  {
     // channels
     controller_send: Sender<ServerEvent>,
@@ -19,7 +22,7 @@ pub struct CommunicationServer  {
 
     pub id: NodeId,
     flood_id_counter: u64,
-    session_manager: SessionManager,
+    pub session_manager: SessionManager,
     assembler: Assembler,
 
     pub network_topology: CommunicationServerNetworkTopology,
@@ -97,7 +100,7 @@ impl CommunicationServer {
     /// and delegating the appropriate action based on its content. The actions may involve
     /// processing message fragments, handling acknowledgments or negative acknowledgments,
     /// or responding to flood requests and responses.
-    fn handle_packet(&mut self, packet: Packet) {
+    pub fn handle_packet(&mut self, packet: Packet) {
         // TODO: check if the packet is for you (we decided to assume that you are the receiver
         // but what if I use the wrong hops-vector later?)
         let sender_id = packet.routing_header.hops[0];
@@ -105,7 +108,7 @@ impl CommunicationServer {
             PacketType::MsgFragment(f) => {
                 self.handle_fragment(f, sender_id, packet.session_id)
             }
-            PacketType::Nack(nack) => self.handle_nack(nack),
+            PacketType::Nack(nack) => self.handle_nack(nack, packet.session_id, packet.routing_header),
             PacketType::Ack(ack) => self.session_manager.handle_ack(ack, &packet.session_id),
             PacketType::FloodRequest(f_req) => self.send_flood_response(f_req),
             PacketType::FloodResponse(f_res) => self.handle_flood_response(f_res),
@@ -133,13 +136,68 @@ impl CommunicationServer {
         self.send_ack(f, sender_id, session_id);
     }
 
-    fn handle_nack(&self, nack: Nack) {
+    pub fn handle_nack(&mut self, nack: Nack, session_id: u64, source_routing_header: SourceRoutingHeader) {
+        // TODO: to test
+        // If i received a Nack something went wrong with a msg-fragment packet
         match nack.nack_type {
-            // TODO!
-            NackType::ErrorInRouting(_) => { todo!() } // aggiorna la topologia
-            NackType::DestinationIsDrone => { todo!() }
-            NackType::Dropped => { todo!() }
-            NackType::UnexpectedRecipient(_) => { todo!() }
+            NackType::ErrorInRouting(error_node) => {
+                self.error_in_routing(
+                    source_routing_header.hops[0],
+                    error_node,
+                    nack.fragment_index,
+                    session_id
+                )
+            }
+            NackType::DestinationIsDrone => { self.destination_is_drone(source_routing_header.hops[0]) }
+            NackType::Dropped => {
+                self.packet_dropped(nack.fragment_index, session_id)
+            }
+            NackType::UnexpectedRecipient(_) => {
+                // TODO: is the unexpected recipient nodeId useful?
+                self.unexpected_recipient(nack.fragment_index, session_id)
+            }
+        }
+    }
+
+    fn unexpected_recipient(&mut self, fragment_index: u64, session_id: u64) {
+        // TODO: to test
+        self.update_network_topology();
+        self.recover_fragment(fragment_index, session_id);
+    }
+    fn packet_dropped(&mut self, fragment_index: u64, session_id: u64) {
+        // TODO: to test. I could update the infos about the pdr of that drone and use it for my sr-protocol
+        self.recover_fragment(fragment_index, session_id);
+    }
+
+    fn destination_is_drone(&mut self, dest: NodeId) {
+        // TODO: to test
+        self.network_topology.node_types.insert(dest, NodeType::Drone); // change the type of dest
+        // TODO: have I to do anything else?
+    }
+
+    fn error_in_routing(&mut self, last_node: NodeId, error_node: NodeId, fragment_index: u64, session_id: u64) {
+        // TODO: to test
+        // update the topology
+        self.network_topology.remove_edge(last_node, error_node);
+        // self.update_network_topology(); // TODO: is this needed?
+        // resend the fragment
+        self.recover_fragment(session_id, fragment_index);
+    }
+
+    fn recover_fragment(&mut self, session_id: u64, fragment_index: u64) {
+        if let Some((fragment, dest)) = self.session_manager.recover_fragment(session_id, fragment_index) {
+            let hops = self.network_topology.source_routing(self.id, dest);
+            let packet = Packet {
+                routing_header: SourceRoutingHeader {
+                    hop_index: 1,
+                    hops,
+                },
+                session_id,
+                pack_type: PacketType::MsgFragment(fragment),
+            };
+            self.send_packet(packet);
+        } else {
+            panic!("tried to recover a fragment that is not in the session_manager");
         }
     }
 
@@ -148,7 +206,7 @@ impl CommunicationServer {
     /// This function creates a flood response packet based on the received flood request, updating
     /// the path trace to include the server's ID. It reverses the path trace to determine the
     /// return path and sends the response to the next node in the return path. Additionally, it
-    /// notifies the controller about the sent packet.
+    /// notifies the controller about the packet sent.
     ///
     /// # Notes
     /// - The call to `send` on the `packet_send` for the next hop may panic if the channel is closed.
@@ -174,6 +232,7 @@ impl CommunicationServer {
             session_id,
         };
 
+        // TODO: assuming the drone connected to the server exists
         self.packet_send[&flood_response_packet.routing_header.hops[1]]
             .send(flood_response_packet.clone())
             .expect("Error in send");
@@ -207,7 +266,7 @@ impl CommunicationServer {
     /// Processes client requests, including server type queries, client registration,
     /// message forwarding, and client list requests. Ignores messages from other servers or for
     /// a content server.
-    fn handle_message(&mut self, message: Message, sender_id: NodeId) {
+    pub fn handle_message(&mut self, message: Message, sender_id: NodeId) {
         match message {
             Message::Client(cb) => {
                 match cb {
@@ -279,6 +338,7 @@ impl CommunicationServer {
             fragment_index: fragment.fragment_index,
         });
         let hops = self.network_topology.source_routing(self.id, to);
+        // TODO: what if hops is empty?
 
         let packet = Packet {
             pack_type: ack,
@@ -296,15 +356,17 @@ impl CommunicationServer {
         // assuming hop index already set at 1
         // assuming the first node connected to the server exists (TODO: probably to check)
         // TODO: to test
-        let next_hop = packet.routing_header.hops[1];
-        let sender = self.packet_send.get(&next_hop).unwrap();
-        if let Err(e) = sender.send(packet) {
-            eprintln!("Error during packet sending to {}: {:?}", next_hop, e);
-        }
+
+        self.packet_send[&packet.routing_header.hops[1]]
+            .send(packet.clone())
+            .expect("Error in send_packet");
+        self.controller_send
+            .send(ServerEvent::PacketSent(packet))
+            .expect("Error in controller_send");
     }
 
     fn send_fragments(&mut self, session_id: u64, fragments: Vec<Fragment>, routing_header: SourceRoutingHeader) {
-        self.session_manager.add_session(session_id, fragments.clone());
+        self.session_manager.add_session(session_id, fragments.clone(), *routing_header.hops.last().unwrap()); // assuming hops is not empty
 
         for fragment in fragments {
             let packet = Packet {

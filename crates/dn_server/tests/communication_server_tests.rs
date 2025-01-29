@@ -1,25 +1,26 @@
 use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::collections::HashMap;
-use wg_2024::packet::{NodeType, Packet};
+use wg_2024::network::{NodeId, SourceRoutingHeader};
+use wg_2024::packet::{NodeType, Packet, PacketType};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_server::communication_server_code::communication_server::CommunicationServer;
 use dn_server::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
 
-fn init_server() -> CommunicationServer {
+fn init_server() -> (CommunicationServer, Sender<Packet>) {
     // receiving commands from controller
     let (_, controller_recv): (Sender<ServerCommand>, Receiver<ServerCommand>) = unbounded();
 
     // sending events to the controller
     let (controller_send, _): (Sender<ServerEvent>, Receiver<ServerEvent>) = unbounded();
 
-    let (_packet_send_1, packet_recv_1): (Sender<Packet>, Receiver<Packet>) = unbounded();
+    let (packet_send_1, packet_recv_1): (Sender<Packet>, Receiver<Packet>) = unbounded();
     let (packet_send_2, _packet_recv_2): (Sender<Packet>, Receiver<Packet>) = unbounded();
     let (packet_send_3, _packet_recv_3): (Sender<Packet>, Receiver<Packet>) = unbounded();
     let (packet_send_5, _packet_recv_5): (Sender<Packet>, Receiver<Packet>) = unbounded();
 
     let mut packet_send_map = HashMap::new();
-    packet_send_map.insert(3, packet_send_2);
-    packet_send_map.insert(2, packet_send_3);
+    packet_send_map.insert(3, packet_send_3);
+    packet_send_map.insert(2, packet_send_2);
     packet_send_map.insert(5, packet_send_5);
 
     let mut c_s = CommunicationServer::new(
@@ -30,7 +31,7 @@ fn init_server() -> CommunicationServer {
         1,
     );
     init_topology(&mut c_s);
-    c_s
+    (c_s, packet_send_1)
 }
 
 fn init_topology(communication_server: &mut CommunicationServer)    {
@@ -57,16 +58,27 @@ fn init_topology(communication_server: &mut CommunicationServer)    {
 
 }
 
+fn test_received_packet(packet_type: PacketType, hops: Vec<NodeId>, hop_index: usize) -> Packet {
+    Packet {
+        routing_header: SourceRoutingHeader {
+            hop_index,
+            hops,
+        },
+        session_id: 111,
+        pack_type: packet_type,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, PacketType};
+    use wg_2024::packet::{FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
     use super::*;
 
     // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
 
     #[test]
     fn test_source_routing() {
-        let mut server = init_server();
+        let (mut server, _) = init_server();
 
         let route = server.network_topology.source_routing(server.id, 1);
 
@@ -169,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_handle_flood_response() {
-        let mut server = init_server();
+        let (mut server, _) = init_server();
 
         let flood_response = FloodResponse {
             flood_id: 1,
@@ -181,23 +193,78 @@ mod tests {
             ],
         };
 
-        assert!(!server.network_topology.graph.contains_node(25));
-        assert!(!server.network_topology.graph.contains_node(26));
-        assert!(!server.network_topology.graph.contains_edge(2, 25));
-        assert!(!server.network_topology.graph.contains_edge(25, 26));
+        assert!(!server.network_topology.contains_node(25));
+        assert!(!server.network_topology.contains_node(26));
+        assert!(!server.network_topology.contains_edge(2, 25));
+        assert!(!server.network_topology.contains_edge(25, 26));
         assert!(!server.network_topology.node_types.contains_key(&25));
         assert!(!server.network_topology.node_types.contains_key(&26));
 
         server.handle_flood_response(flood_response);
 
-        assert!(server.network_topology.graph.contains_node(25));
-        assert!(server.network_topology.graph.contains_node(26));
+        assert!(server.network_topology.contains_node(25));
+        assert!(server.network_topology.contains_node(26));
 
-        assert!(server.network_topology.graph.contains_edge(2, 25));
-        assert!(server.network_topology.graph.contains_edge(25, 26));
+        assert!(server.network_topology.contains_edge(2, 25));
+        assert!(server.network_topology.contains_edge(25, 26));
 
         assert_eq!(server.network_topology.node_types.get(&25), Some(&NodeType::Drone));
         assert_eq!(server.network_topology.node_types.get(&26), Some(&NodeType::Client));
+    }
+
+    #[test]
+    fn test_handle_nack() {
+        // receiving events from the controller
+        let (_send_from_controller_to_server, recv_from_controller): (Sender<ServerCommand>, Receiver<ServerCommand>) = unbounded();
+
+        // sending events to the controller
+        let (send_from_server_to_controller, _recv_from_server): (Sender<ServerEvent>, Receiver<ServerEvent>) = unbounded();
+
+        let (_packet_send_1, packet_recv_1): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (packet_send_2, _packet_recv_2): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (packet_send_3, packet_recv_3): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (packet_send_5, _packet_recv_5): (Sender<Packet>, Receiver<Packet>) = unbounded();
+
+        let mut packet_send_map = HashMap::new();
+        packet_send_map.insert(3, packet_send_3);
+        packet_send_map.insert(2, packet_send_2);
+        packet_send_map.insert(5, packet_send_5);
+
+        let mut server = CommunicationServer::new(
+            send_from_server_to_controller,
+            recv_from_controller,
+            packet_send_map,
+            packet_recv_1,
+            1,
+        );
+        init_topology(&mut server);
+
+        let fragment_index = 23;
+        let packet = test_received_packet(PacketType::Nack(
+            Nack {
+                fragment_index,
+                nack_type: NackType::ErrorInRouting(3),
+            }
+        ), vec![2, 1], 2);
+
+        server.session_manager.pending_sessions_destination.insert(111, 6);
+        let mut pending_fragment = HashMap::new();
+        let data: [u8; 128] = [0; 128];
+        pending_fragment.insert(fragment_index, Fragment {
+            fragment_index,
+            total_n_fragments: 100,
+            length: 0,
+            data,
+        });
+        server.session_manager.pending_sessions.insert(111, pending_fragment);
+
+        assert!(server.network_topology.contains_edge(2, 3));
+        server.handle_packet(packet);
+
+        assert!(!server.network_topology.contains_edge(2, 3));
+        // thread::sleep(Duration::new(1, 0));
+        let received_packet = packet_recv_3.try_recv().expect("No packet received on channel 3");
+        assert_eq!(received_packet.session_id, 111);
     }
 
 }
