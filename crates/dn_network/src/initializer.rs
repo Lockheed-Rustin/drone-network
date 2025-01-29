@@ -4,7 +4,7 @@ use dn_controller::{
     ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController, Topology,
 };
 use dn_server::Server;
-use drone::LockheedRustin;
+use lockheedrustin_drone::LockheedRustin;
 use petgraph::prelude::{DiGraphMap, UnGraphMap};
 use std::collections::HashMap;
 use wg_2024::{

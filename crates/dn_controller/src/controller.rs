@@ -173,7 +173,6 @@ impl SimulationController {
         Some(())
     }
 
-    // --- drones ---
     pub fn crash_drone(&mut self, id: NodeId) -> Option<()> {
         let sender = self.get_drone_sender(id)?;
         if !self.topology_crash_check(id) {
@@ -210,71 +209,14 @@ impl SimulationController {
         }
     }
 
-    // --- clients ---
-    fn client_send_message(&self, client_id: NodeId, dest: NodeId, body: ClientBody) -> Option<()> {
+    pub fn client_send_message(
+        &self,
+        client_id: NodeId,
+        dest: NodeId,
+        body: ClientBody,
+    ) -> Option<()> {
         let sender = self.get_client_sender(client_id)?;
         sender.send(ClientCommand::SendMessage(body, dest)).ok()
-    }
-    pub fn client_send_request_server_type(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-    ) -> Option<()> {
-        let body = ClientBody::ReqServerType;
-        self.client_send_message(client_id, server_id, body)
-    }
-
-    pub fn client_send_request_files_list(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-    ) -> Option<()> {
-        let body = ClientBody::ClientContent(ClientContentBody::ReqFilesList);
-        self.client_send_message(client_id, server_id, body)
-    }
-
-    pub fn client_send_request_file(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-        file: String,
-    ) -> Option<()> {
-        let body = ClientBody::ClientContent(ClientContentBody::ReqFile(file));
-        self.client_send_message(client_id, server_id, body)
-    }
-
-    pub fn client_send_request_registration_to_chat(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-    ) -> Option<()> {
-        let body = ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat);
-        self.client_send_message(client_id, server_id, body)
-    }
-
-    pub fn client_send_request_client_list(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-    ) -> Option<()> {
-        let body = ClientBody::ClientCommunication(ClientCommunicationBody::ReqClientList);
-        self.client_send_message(client_id, server_id, body)
-    }
-
-    pub fn client_send_communication_message(
-        &self,
-        client_id: NodeId,
-        server_id: NodeId,
-        destination_id: NodeId,
-        content: String,
-    ) -> Option<()> {
-        let msg = CommunicationMessage {
-            from: client_id,
-            to: destination_id,
-            message: content,
-        };
-        let body = ClientBody::ClientCommunication(ClientCommunicationBody::MessageSend(msg));
-        self.client_send_message(client_id, server_id, body)
     }
 
     // TODO: remove this after the fair
