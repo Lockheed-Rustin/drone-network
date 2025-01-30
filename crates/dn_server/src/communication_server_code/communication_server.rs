@@ -5,7 +5,7 @@ use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::ServerBody::RespServerType;
 use dn_message::ServerCommunicationBody::RespClientList;
 use dn_message::{
-    Assembler, ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
+    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
     ServerCommunicationBody, ServerType,
 };
 use std::collections::{HashMap, HashSet};
@@ -13,6 +13,7 @@ use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
 };
+use dn_message::assembler::Assembler;
 
 // TODO: I could save the paths instead of doing the source routing every time
 // TODO: I should check if I send to the SC all the info he wants (PacketReceived, MessageAssembled, MessageFragmented, PacketSent)
