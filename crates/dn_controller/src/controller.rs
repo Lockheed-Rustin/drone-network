@@ -1,5 +1,6 @@
 use crate::{ClientCommand, ClientEvent, ServerCommand, ServerEvent};
 use crossbeam_channel::{Receiver, Sender};
+use dn_message::ClientBody;
 use petgraph::algo::connected_components;
 use petgraph::prelude::UnGraphMap;
 use std::collections::HashMap;
@@ -122,23 +123,16 @@ impl SimulationController {
             .collect()
     }
 
-    pub fn get_drone_sender(&self, id: NodeId) -> Option<Sender<DroneCommand>> {
+    fn get_drone_sender(&self, id: NodeId) -> Option<Sender<DroneCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Drone { sender, .. } => Some(sender.clone()),
             _ => None,
         }
     }
 
-    pub fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
+    fn get_client_sender(&self, id: NodeId) -> Option<Sender<ClientCommand>> {
         match &self.nodes.get(&id)?.node_type {
             NodeType::Client { sender } => Some(sender.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
-        match &self.nodes.get(&id)?.node_type {
-            NodeType::Server { sender } => Some(sender.clone()),
             _ => None,
         }
     }
@@ -206,6 +200,16 @@ impl SimulationController {
             NodeType::Drone { pdr, .. } => Some(*pdr),
             _ => None,
         }
+    }
+
+    pub fn client_send_message(
+        &self,
+        client_id: NodeId,
+        dest: NodeId,
+        body: ClientBody,
+    ) -> Option<()> {
+        let sender = self.get_client_sender(client_id)?;
+        sender.send(ClientCommand::SendMessage(body, dest)).ok()
     }
 
     // TODO: remove this after the fair
