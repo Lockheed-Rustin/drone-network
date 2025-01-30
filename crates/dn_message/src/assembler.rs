@@ -1,4 +1,5 @@
 use crate::Message;
+use bincode::config;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
@@ -62,8 +63,8 @@ impl Assembler {
         fragments
     }
 
-    fn serialize_message_data(&self, _message: &Message) -> Vec<u8> {
-        unimplemented!("serialize_message_data");
+    fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
+        bincode::encode_to_vec(message, config::standard()).unwrap()
     }
 }
 
@@ -104,7 +105,8 @@ impl MessageBuffer {
     }
 
     pub fn to_message(&self) -> Message {
-        // TODO
-        unimplemented!()
+        bincode::decode_from_slice(&self.fragments, config::standard())
+            .unwrap()
+            .0
     }
 }

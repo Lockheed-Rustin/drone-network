@@ -1,8 +1,8 @@
 [package]
-name = "dn_message"
+name = "dn_routing"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bincode = "2.0.0-rc"
+petgraph = "0.7.1"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
