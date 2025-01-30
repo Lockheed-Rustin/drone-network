@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet, VecDeque};
 use petgraph::graphmap::UnGraphMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
 
@@ -22,7 +22,8 @@ impl CommunicationServerNetworkTopology {
         if !self.graph.contains_node(node_id) {
             self.graph.add_node(node_id);
         }
-        self.node_types.entry(node_id) // I assume the node type does not change
+        self.node_types
+            .entry(node_id) // I assume the node type does not change
             .or_insert(node_type);
     }
 
@@ -57,7 +58,6 @@ impl CommunicationServerNetworkTopology {
     }
 
     pub fn source_routing(&self, from: NodeId, to: NodeId) -> Vec<NodeId> {
-
         // todo!: currently using a simple BFS
         // it could use "astar" with pdr as weight
         let mut visited = HashSet::new();
@@ -97,7 +97,6 @@ impl CommunicationServerNetworkTopology {
         }
 
         vec![]
-
     }
 }
 
