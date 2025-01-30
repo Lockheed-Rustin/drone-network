@@ -7,6 +7,7 @@ edition = "2021"
 members = ["crates/*"]
 
 [dependencies]
+crossbeam-channel = "0.5.14"
 dn_internal = { path = "crates/dn_internal" }
 
 [dev-dependencies]
