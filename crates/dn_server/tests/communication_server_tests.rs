@@ -1,7 +1,8 @@
 use crossbeam_channel::{unbounded, Sender, Receiver};
 use std::collections::HashMap;
+use rand::Rng;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
-use wg_2024::packet::{NodeType, Packet, PacketType};
+use wg_2024::packet::{Fragment, NodeType, Packet, PacketType};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_server::communication_server_code::communication_server::CommunicationServer;
 use dn_server::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
@@ -58,20 +59,31 @@ fn init_topology(communication_server: &mut CommunicationServer)    {
 
 }
 
-fn test_received_packet(packet_type: PacketType, hops: Vec<NodeId>, hop_index: usize) -> Packet {
-    Packet {
+fn test_received_packet(packet_type: PacketType, hops: Vec<NodeId>, hop_index: usize) -> (Packet, u64) {
+    let session_id: u64 = rand::rng().random();
+    (Packet {
         routing_header: SourceRoutingHeader {
             hop_index,
             hops,
         },
-        session_id: 111,
+        session_id,
         pack_type: packet_type,
+    }, session_id)
+}
+
+fn test_fragment(fragment_index: u64, total_n_fragments: u64) -> Fragment {
+    let data: [u8; 128] = [0; 128];
+    Fragment {
+        fragment_index,
+        total_n_fragments,
+        length: 0,
+        data,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use wg_2024::packet::{FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
+    use wg_2024::packet::{FloodRequest, FloodResponse, Nack, NackType, NodeType, PacketType};
     use super::*;
 
     // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
@@ -99,14 +111,14 @@ mod tests {
         assert_eq!(route[2], 7);
         assert_eq!(route[3], 4);
 
-        server.network_topology.node_types.insert(7, NodeType::Server);
+        server.network_topology.update_node_type(7, NodeType::Server);
         let route = server.network_topology.source_routing(server.id, 4);
         // should avoid passing through 5 because it's a client, but also through 7 because it's a
         // server. So the path is empty
         assert!(route.is_empty());
 
-        server.network_topology.node_types.insert(5, NodeType::Drone);
-        server.network_topology.node_types.insert(7, NodeType::Drone);
+        server.network_topology.update_node_type(5, NodeType::Drone);
+        server.network_topology.update_node_type(7, NodeType::Drone);
         // should pass through 5 now because it's a drone and the path is shorter than the one passing
         // through 7
         let route = server.network_topology.source_routing(server.id, 4);
@@ -197,8 +209,8 @@ mod tests {
         assert!(!server.network_topology.contains_node(26));
         assert!(!server.network_topology.contains_edge(2, 25));
         assert!(!server.network_topology.contains_edge(25, 26));
-        assert!(!server.network_topology.node_types.contains_key(&25));
-        assert!(!server.network_topology.node_types.contains_key(&26));
+        assert!(!server.network_topology.contains_type(&25));
+        assert!(!server.network_topology.contains_type(&26));
 
         server.handle_flood_response(flood_response);
 
@@ -208,12 +220,13 @@ mod tests {
         assert!(server.network_topology.contains_edge(2, 25));
         assert!(server.network_topology.contains_edge(25, 26));
 
-        assert_eq!(server.network_topology.node_types.get(&25), Some(&NodeType::Drone));
-        assert_eq!(server.network_topology.node_types.get(&26), Some(&NodeType::Client));
+        assert_eq!(server.network_topology.get_node_type(&25), Some(&NodeType::Drone));
+        assert_eq!(server.network_topology.get_node_type(&26), Some(&NodeType::Client));
     }
 
     #[test]
     fn test_handle_nack() {
+        // INIT
         // receiving events from the controller
         let (_send_from_controller_to_server, recv_from_controller): (Sender<ServerCommand>, Receiver<ServerCommand>) = unbounded();
 
@@ -239,32 +252,59 @@ mod tests {
         );
         init_topology(&mut server);
 
+        // ERROR IN ROUTING NACK
         let fragment_index = 23;
-        let packet = test_received_packet(PacketType::Nack(
+        let (packet, session_id) = test_received_packet(PacketType::Nack(
             Nack {
                 fragment_index,
                 nack_type: NackType::ErrorInRouting(3),
             }
         ), vec![2, 1], 2);
-
-        server.session_manager.pending_sessions_destination.insert(111, 6);
-        let mut pending_fragment = HashMap::new();
-        let data: [u8; 128] = [0; 128];
-        pending_fragment.insert(fragment_index, Fragment {
-            fragment_index,
-            total_n_fragments: 100,
-            length: 0,
-            data,
-        });
-        server.session_manager.pending_sessions.insert(111, pending_fragment);
+        let pending_fragment = test_fragment(fragment_index, 100);
+        server.session_manager.add_session(session_id, vec![pending_fragment], 6);
 
         assert!(server.network_topology.contains_edge(2, 3));
         server.handle_packet(packet);
-
         assert!(!server.network_topology.contains_edge(2, 3));
-        // thread::sleep(Duration::new(1, 0));
-        let received_packet = packet_recv_3.try_recv().expect("No packet received on channel 3");
-        assert_eq!(received_packet.session_id, 111);
+
+        let flood_req = packet_recv_3.try_recv().expect("Expected flood_req because of update topology");
+        match flood_req.pack_type {
+            PacketType::FloodRequest(_) => {}
+            _ => panic!("Expected FloodRequest pack"),
+        }
+        let received_packet = packet_recv_3.try_recv().expect("No recover packet received on channel 3");
+        assert_eq!(received_packet.session_id, session_id);
+
+        // DESTINATION IS DRONE
+        let (packet, session_id) = test_received_packet(PacketType::Nack(
+            Nack {
+                fragment_index: 0,
+                nack_type: NackType::DestinationIsDrone,
+            }
+        ), vec![5, 1], 2);
+        assert_eq!(server.network_topology.get_node_type(&5), Some(&NodeType::Client));
+        server.handle_packet(packet);
+        assert_eq!(server.network_topology.get_node_type(&5), Some(&NodeType::Drone));
+        // reset to client
+        server.network_topology.update_node_type(5, NodeType::Client);
+        assert_eq!(server.network_topology.get_node_type(&5), Some(&NodeType::Client));
+
+        // PACKET DROPPED
+        let fragment_index = 25;
+        let (packet, session_id) = test_received_packet(PacketType::Nack(
+            Nack {
+                fragment_index,
+                nack_type: NackType::Dropped,
+            }
+        ), vec![3, 1], 2);
+        let fragment = test_fragment(fragment_index, 1);
+        server.session_manager.add_session(session_id, vec![fragment], 6);
+
+        server.handle_packet(packet);
+        let received_packet = packet_recv_3.try_recv().expect("No recover packet received on channel 3");
+        assert_eq!(received_packet.session_id, session_id);
+
+        // UNEXPECTED RECIPIENT
     }
 
 }

@@ -13,6 +13,7 @@ use crate::communication_server_code::session_manager::SessionManager;
 // TODO: I should check if I send to the SC all the info he wants (PacketReceived, MessageAssembled, MessageFragmented, PacketSent)
 // TODO: check that the destination of a path is not a drone
 // TODO: remove all the println
+// TODO: various types of message like error unsupported request type
 pub struct CommunicationServer  {
     // channels
     controller_send: Sender<ServerEvent>,
@@ -148,12 +149,15 @@ impl CommunicationServer {
                     session_id
                 )
             }
-            NackType::DestinationIsDrone => { self.destination_is_drone(source_routing_header.hops[0]) }
+            NackType::DestinationIsDrone => {
+                self.network_topology.update_node_type(source_routing_header.hops[0], NodeType::Drone);
+            }
             NackType::Dropped => {
-                self.packet_dropped(nack.fragment_index, session_id)
+                // TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol
+                self.recover_fragment(session_id, nack.fragment_index)
             }
             NackType::UnexpectedRecipient(_) => {
-                // TODO: is the unexpected recipient nodeId useful?
+                // TODO: is the unexpected recipient nodeId useless?
                 self.unexpected_recipient(nack.fragment_index, session_id)
             }
         }
@@ -161,29 +165,27 @@ impl CommunicationServer {
 
     fn unexpected_recipient(&mut self, fragment_index: u64, session_id: u64) {
         // TODO: to test
+        // In which cases could I receive this Nack?
         self.update_network_topology();
-        self.recover_fragment(fragment_index, session_id);
-    }
-    fn packet_dropped(&mut self, fragment_index: u64, session_id: u64) {
-        // TODO: to test. I could update the infos about the pdr of that drone and use it for my sr-protocol
-        self.recover_fragment(fragment_index, session_id);
-    }
-
-    fn destination_is_drone(&mut self, dest: NodeId) {
-        // TODO: to test
-        self.network_topology.node_types.insert(dest, NodeType::Drone); // change the type of dest
-        // TODO: have I to do anything else?
+        self.recover_fragment(session_id, fragment_index);
     }
 
     fn error_in_routing(&mut self, last_node: NodeId, error_node: NodeId, fragment_index: u64, session_id: u64) {
-        // TODO: to test
         // update the topology
         self.network_topology.remove_edge(last_node, error_node);
-        // self.update_network_topology(); // TODO: is this needed?
+        self.update_network_topology(); // TODO: is this needed?
         // resend the fragment
         self.recover_fragment(session_id, fragment_index);
     }
 
+    /// Attempts to recover a message fragment associated with a session.
+    ///
+    /// If the fragment is successfully recovered, it is encapsulated in a packet and sent through the network.
+    /// The packet uses source routing to determine the path to its destination.
+    ///
+    /// # Panic
+    /// This function panics if the specified fragment does not exist in the session manager.
+    /// This indicates that an invalid session ID or fragment index was provided.
     fn recover_fragment(&mut self, session_id: u64, fragment_index: u64) {
         if let Some((fragment, dest)) = self.session_manager.recover_fragment(session_id, fragment_index) {
             let hops = self.network_topology.source_routing(self.id, dest);
@@ -197,7 +199,10 @@ impl CommunicationServer {
             };
             self.send_packet(packet);
         } else {
-            panic!("tried to recover a fragment that is not in the session_manager");
+            panic!("tried to recover a fragment that is not in the session_manager.\n\
+                    session_id: {}\n\
+                    fragment_index: {}\n", session_id, fragment_index
+            );
         }
     }
 

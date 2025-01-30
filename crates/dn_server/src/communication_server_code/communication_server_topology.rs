@@ -7,7 +7,7 @@ type Topology = UnGraphMap<NodeId, ()>;
 
 pub struct CommunicationServerNetworkTopology {
     graph: Topology,
-    pub node_types: HashMap<NodeId, NodeType>,
+    node_types: HashMap<NodeId, NodeType>,
 }
 
 impl CommunicationServerNetworkTopology {
@@ -48,10 +48,18 @@ impl CommunicationServerNetworkTopology {
         self.node_types.get(node_id)
     }
 
+    pub fn update_node_type(&mut self, node_id: NodeId, node_type: NodeType) {
+        self.node_types.insert(node_id, node_type);
+    }
+
+    pub fn contains_type(&self, node: &NodeId) -> bool {
+        self.node_types.contains_key(node)
+    }
+
     pub fn source_routing(&self, from: NodeId, to: NodeId) -> Vec<NodeId> {
 
         // todo!: currently using a simple BFS
-        // it could use `astar` with pdr as weight
+        // it could use "astar" with pdr as weight
         let mut visited = HashSet::new();
         let mut parent_map = HashMap::new();
         let mut queue = VecDeque::new();

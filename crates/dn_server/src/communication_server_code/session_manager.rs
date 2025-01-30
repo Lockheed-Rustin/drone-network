@@ -6,8 +6,8 @@ type PendingFragments = HashMap<u64, Fragment>;
 
 pub struct SessionManager {
     session_id_counter: u64,
-    pub pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
-    pub pending_sessions_destination: HashMap<u64, NodeId> // session_id -> destination_id: NodeId
+    pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
+    pending_sessions_destination: HashMap<u64, NodeId> // session_id -> destination_id: NodeId
 }
 
 impl SessionManager {
