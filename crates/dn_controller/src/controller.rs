@@ -137,6 +137,13 @@ impl SimulationController {
         }
     }
 
+    fn get_server_sender(&self, id: NodeId) -> Option<Sender<ServerCommand>> {
+        match &self.nodes.get(&id)?.node_type {
+            NodeType::Server { sender } => Some(sender.clone()),
+            _ => None,
+        }
+    }
+
     fn add_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
         let a_node = self.nodes.get(&a)?;
         let b_node = self.nodes.get(&b)?;
@@ -262,6 +269,29 @@ impl SimulationController {
         }
 
         valid
+    }
+}
+
+impl Drop for SimulationController {
+    fn drop(&mut self) {
+        for id in self.get_drone_ids() {
+            self.get_drone_sender(id)
+                .unwrap()
+                .send(DroneCommand::Crash)
+                .unwrap()
+        }
+        for id in self.get_client_ids() {
+            self.get_client_sender(id)
+                .unwrap()
+                .send(ClientCommand::Return)
+                .unwrap()
+        }
+        for id in self.get_server_ids() {
+            self.get_server_sender(id)
+                .unwrap()
+                .send(ServerCommand::Return)
+                .unwrap()
+        }
     }
 }
 

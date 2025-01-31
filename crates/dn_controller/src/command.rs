@@ -8,11 +8,13 @@ pub enum ClientCommand {
     SendFragment,
     SendFloodRequest,
     RemoveSender(NodeId),
+    Return,
 }
 
 pub enum ServerCommand {
     AddSender(NodeId, Sender<Packet>),
     RemoveSender(NodeId),
+    Return,
 }
 
 pub enum ServerEvent {
