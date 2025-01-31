@@ -270,3 +270,21 @@ impl Debug for SimulationController {
         writeln!(f, "{:#?}", self.topology)
     }
 }
+
+impl Drop for SimulationController {
+    fn drop(&mut self) {
+        for (id, node) in self.nodes.drain() {
+            match node.node_type {
+                NodeType::Drone { sender, .. } => {
+                    sender.send(DroneCommand::Crash).unwrap();
+                    // remove all senders
+                    for neighbor in self.topology.neighbors(id) {
+                        sender.send(DroneCommand::RemoveSender(neighbor)).unwrap();
+                    }
+                }
+                NodeType::Client { sender } => sender.send(ClientCommand::Return).unwrap(),
+                NodeType::Server { sender } => sender.send(ServerCommand::Return).unwrap(),
+            }
+        }
+    }
+}
