@@ -276,7 +276,7 @@ impl Drop for SimulationController {
         for (id, node) in self.nodes.drain() {
             match node.node_type {
                 NodeType::Drone { sender, .. } => {
-                    sender.send(DroneCommand::Crash).ok().unwrap();
+                    sender.send(DroneCommand::Crash).unwrap();
                     // remove all senders
                     for neighbor in self.topology.neighbors(id) {
                         sender.send(DroneCommand::RemoveSender(neighbor)).unwrap();
