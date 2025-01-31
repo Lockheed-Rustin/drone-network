@@ -272,31 +272,26 @@ impl SimulationController {
     }
 }
 
-impl Drop for SimulationController {
-    fn drop(&mut self) {
-        for id in self.get_drone_ids() {
-            self.get_drone_sender(id)
-                .unwrap()
-                .send(DroneCommand::Crash)
-                .unwrap()
-        }
-        for id in self.get_client_ids() {
-            self.get_client_sender(id)
-                .unwrap()
-                .send(ClientCommand::Return)
-                .unwrap()
-        }
-        for id in self.get_server_ids() {
-            self.get_server_sender(id)
-                .unwrap()
-                .send(ServerCommand::Return)
-                .unwrap()
-        }
-    }
-}
-
 impl Debug for SimulationController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{:#?}", self.topology)
+    }
+}
+
+impl Drop for SimulationController {
+    fn drop(&mut self) {
+        for (id, node) in self.nodes.drain() {
+            match node.node_type {
+                NodeType::Drone { sender, .. } => {
+                    sender.send(DroneCommand::Crash).ok().unwrap();
+                    // remove all senders
+                    for neighbor in self.topology.neighbors(id) {
+                        sender.send(DroneCommand::RemoveSender(neighbor)).unwrap();
+                    }
+                }
+                NodeType::Client { sender } => sender.send(ClientCommand::Return).unwrap(),
+                NodeType::Server { sender } => sender.send(ServerCommand::Return).unwrap(),
+            }
+        }
     }
 }
