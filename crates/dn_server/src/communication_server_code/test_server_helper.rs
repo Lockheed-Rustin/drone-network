@@ -87,12 +87,11 @@ impl TestServerHelper {
     pub fn test_received_packet(
         packet_type: PacketType,
         hops: Vec<NodeId>,
-        hop_index: usize,
     ) -> (Packet, u64) {
         let session_id: u64 = rand::rng().random();
         (
             Packet {
-                routing_header: SourceRoutingHeader { hop_index, hops },
+                routing_header: SourceRoutingHeader { hop_index: hops.len()-1, hops },
                 session_id,
                 pack_type: packet_type,
             },
@@ -112,5 +111,44 @@ impl TestServerHelper {
 
     pub fn test_client_message(client_communication_body: ClientCommunicationBody) -> Message {
         Message::Client(ClientBody::ClientCommunication(client_communication_body))
+    }
+
+    pub fn wait_for_ack_on_node_3(&self, nr_of_fragments: usize) {
+        for _ in 0..nr_of_fragments {
+            self.packet_recv_3.try_recv().expect("Expected ack packet");
+        }
+    }
+
+    pub fn send_fragments_to_server(&mut self, fragments: Vec<Fragment>) {
+        for f in fragments {
+            let (packet, _session_id) = TestServerHelper::test_received_packet(PacketType::MsgFragment(f), vec![6, 3, 1]);
+            self.server.handle_packet(packet);
+        }
+    }
+
+    pub fn serialize_message(&self, message: Message) -> Vec<Fragment> {
+        self
+            .server
+            .assembler
+            .serialize_message(message)
+    }
+
+    pub fn reconstruct_response_on_node_3(&mut self, nr_of_fragments: usize) -> Message {
+        let mut reconstructed_response = None;
+        for _ in 0..nr_of_fragments {
+            let response_packet = self
+                .packet_recv_3
+                .try_recv()
+                .expect("Expected recv packet");
+            if let PacketType::MsgFragment(f) = response_packet.pack_type {
+                reconstructed_response = self.server.assembler.handle_fragment(
+                    f,
+                    response_packet.routing_header.hops[0],
+                    response_packet.session_id,
+                );
+            }
+        }
+
+        reconstructed_response.expect("Expected reconstructed response")
     }
 }

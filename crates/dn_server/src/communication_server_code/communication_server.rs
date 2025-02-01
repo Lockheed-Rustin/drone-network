@@ -1,5 +1,5 @@
 use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
-use crate::communication_server_code::session_manager::SessionManager;
+use crate::communication_server_code::session_manager::{SessionId, SessionManager};
 use crossbeam_channel::{select, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::assembler::Assembler;
@@ -20,20 +20,19 @@ use wg_2024::packet::{
 // TODO: check that the destination of a path is not a drone
 // TODO: remove all the println
 // TODO: various types of message like error unsupported request type
+
+// TODO: move tests in dir and  use pub(in some::module) to access variables
 pub struct CommunicationServer {
-    // channels
     controller_send: Sender<ServerEvent>,
-    pub controller_recv: Receiver<ServerCommand>,
+    controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
-    pub packet_recv: Receiver<Packet>,
+    packet_recv: Receiver<Packet>,
 
-    pub id: NodeId,
+    id: NodeId,
     flood_id_counter: u64,
-    pub session_manager: SessionManager,
-    assembler: Assembler,
-
-    pub network_topology: CommunicationServerNetworkTopology,
-
+    session_manager: SessionManager,
+    pub(crate) assembler: Assembler,
+    pub(crate) network_topology: CommunicationServerNetworkTopology,
     registered_clients: HashSet<NodeId>,
 }
 
@@ -60,8 +59,8 @@ impl CommunicationServer {
     }
 
     pub fn run(&mut self) {
+        // TODO: to test
         self.update_network_topology(); // first discovery of the network
-
         loop {
             select! {
                 recv(self.controller_recv) -> command => {
@@ -106,7 +105,7 @@ impl CommunicationServer {
     /// and delegating the appropriate action based on its content. The actions may involve
     /// processing message fragments, handling acknowledgments or negative acknowledgments,
     /// or responding to flood requests and responses.
-    fn handle_packet(&mut self, packet: Packet) {
+    pub(crate) fn handle_packet(&mut self, packet: Packet) {
         // TODO: check if the packet is for you (we decided to assume that you are the receiver
         // but what if I use the wrong hops-vector later?)
         if self.check_routing(&packet) {
@@ -138,7 +137,7 @@ impl CommunicationServer {
     /// complete message. If the message is successfully assembled, it delegates the message
     /// handling to the appropriate method. Regardless of the assembly result, it sends an
     /// acknowledgment for the processed fragment.
-    fn handle_fragment(&mut self, f: Fragment, sender_id: NodeId, session_id: u64) {
+    fn handle_fragment(&mut self, f: Fragment, sender_id: NodeId, session_id: SessionId) {
         self.send_ack(f.clone(), sender_id, session_id);
         if let Some(message) = self.assembler.handle_fragment(f, sender_id, session_id) {
             self.handle_message(message, sender_id);
@@ -148,7 +147,7 @@ impl CommunicationServer {
     fn handle_nack(
         &mut self,
         nack: Nack,
-        session_id: u64,
+        session_id: SessionId,
         source_routing_header: SourceRoutingHeader,
     ) {
         // If I received a Nack something went wrong with a msg-fragment packet
@@ -179,7 +178,7 @@ impl CommunicationServer {
         last_node: NodeId,
         error_node: NodeId,
         fragment_index: u64,
-        session_id: u64,
+        session_id: SessionId,
     ) {
         // update the topology
         self.network_topology.remove_edge(last_node, error_node);
@@ -196,7 +195,7 @@ impl CommunicationServer {
     /// # Panic
     /// This function panics if the specified fragment does not exist in the session manager.
     /// This indicates that an invalid session ID or fragment index was provided.
-    fn recover_fragment(&mut self, session_id: u64, fragment_index: u64) {
+    fn recover_fragment(&mut self, session_id: SessionId, fragment_index: u64) {
         if let Some((fragment, dest)) = self
             .session_manager
             .recover_fragment(session_id, fragment_index)
@@ -341,7 +340,7 @@ impl CommunicationServer {
             .expect("Error in controller_send");
     }
 
-    fn send_ack(&mut self, fragment: Fragment, to: NodeId, session_id: u64) {
+    fn send_ack(&mut self, fragment: Fragment, to: NodeId, session_id: SessionId) {
         let ack = PacketType::Ack(Ack {
             fragment_index: fragment.fragment_index,
         });
@@ -376,7 +375,7 @@ impl CommunicationServer {
 
     fn send_fragments(
         &mut self,
-        session_id: u64,
+        session_id: SessionId,
         fragments: Vec<Fragment>,
         routing_header: SourceRoutingHeader,
     ) {
@@ -412,15 +411,7 @@ impl CommunicationServer {
     // possible actions:
 
     fn register_client(&mut self, client_id: NodeId) {
-        if self.registered_clients.contains(&client_id) {
-            // already registered
-            // TODO: send an error or ignoring?
-        }
-
         self.registered_clients.insert(client_id);
-
-        // TODO: send confirmation message or not?
-        // in that case use assembler.serialize_message
     }
 
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
@@ -459,7 +450,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use dn_controller::ServerEvent;
     use dn_message::ClientBody::ReqServerType;
-    use dn_message::{ClientBody, ClientCommunicationBody, Message, ServerBody, ServerType};
+    use dn_message::{ClientCommunicationBody, Message, ServerBody, ServerType};
     use std::collections::HashMap;
     use wg_2024::packet::{
         FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
@@ -469,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_source_routing() {
-        let mut helper = TestServerHelper::new();
+        let helper = TestServerHelper::new();
         let mut server = helper.server;
 
         let route = server.network_topology.source_routing(server.id, 1);
@@ -571,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_handle_flood_response() {
-        let mut helper = TestServerHelper::new();
+        let helper = TestServerHelper::new();
         let mut server = helper.server;
 
         let flood_response = FloodResponse {
@@ -595,10 +586,8 @@ mod tests {
 
         assert!(server.network_topology.contains_node(25));
         assert!(server.network_topology.contains_node(26));
-
         assert!(server.network_topology.contains_edge(2, 25));
         assert!(server.network_topology.contains_edge(25, 26));
-
         assert_eq!(
             server.network_topology.get_node_type(&25),
             Some(&NodeType::Drone)
@@ -621,7 +610,6 @@ mod tests {
                 nack_type: NackType::ErrorInRouting(3),
             }),
             vec![2, 1],
-            1,
         );
         let pending_fragment = TestServerHelper::test_fragment(fragment_index, 100);
         test_server_helper.server.session_manager.add_session(
@@ -661,7 +649,6 @@ mod tests {
                 nack_type: NackType::DestinationIsDrone,
             }),
             vec![5, 1],
-            1,
         );
         assert_eq!(
             test_server_helper.server.network_topology.get_node_type(&5),
@@ -690,7 +677,6 @@ mod tests {
                 nack_type: NackType::Dropped,
             }),
             vec![3, 1],
-            1,
         );
         let fragment = TestServerHelper::test_fragment(fragment_index, 1);
         test_server_helper
@@ -710,27 +696,6 @@ mod tests {
     }
 
     #[test]
-    fn test_assembler() {
-        let mut helper = TestServerHelper::new();
-        let mut server = helper.server;
-        let message =
-            TestServerHelper::test_client_message(ClientCommunicationBody::ReqRegistrationToChat);
-        let serialized_message: Vec<Fragment> = server.assembler.serialize_message(message);
-        let mut reconstructed_message = None;
-        for f in serialized_message {
-            reconstructed_message = server.assembler.handle_fragment(f, 0, 0);
-        }
-        let reconstructed_message = reconstructed_message.expect("Expected reconstructed message");
-        match reconstructed_message {
-            Message::Client(ClientBody::ClientCommunication(body)) => match body {
-                ClientCommunicationBody::ReqRegistrationToChat => {}
-                _ => panic!("Expected ClientCommunicationBody::ReqRegistrationToChat pack"),
-            },
-            _ => panic!("Expected ClientMessage"),
-        }
-    }
-
-    #[test]
     fn test_send_ack() {
         let mut test_server_helper = TestServerHelper::new();
 
@@ -746,59 +711,47 @@ mod tests {
         assert_eq!(ack.session_id, session_id);
         match ack.pack_type {
             PacketType::Ack(c) => {
-                assert_eq!(c.fragment_index, 13);
+                assert_eq!(c.fragment_index, 13)
             }
-            _ => {
-                panic!("Expected Ack");
-            }
+            _ => panic!("Expected Ack"),
         }
     }
 
     #[test]
     fn test_send_server_type() {
         let mut test_server_helper = TestServerHelper::new();
-
         let message = Message::Client(ReqServerType);
-        let serialized_message: Vec<Fragment> = test_server_helper
-            .server
-            .assembler
-            .serialize_message(message);
-        let mut nr_of_fragments = 0;
-        for f in serialized_message {
-            test_server_helper.server.handle_fragment(f, 6, 0);
-            nr_of_fragments += 1;
-        }
+        let serialized_message = test_server_helper.serialize_message(message);
+        let nr_of_fragments = serialized_message.len();
 
-        for _ in 0..nr_of_fragments {
-            test_server_helper
-                .packet_recv_3
-                .try_recv()
-                .expect("Expected recv packet");
-        }
-
-        let mut reconstructed_response = None;
-
-        for _ in 0..nr_of_fragments {
-            let response_packet = test_server_helper
-                .packet_recv_3
-                .try_recv()
-                .expect("Expected recv packet");
-            if let PacketType::MsgFragment(f) = response_packet.pack_type {
-                reconstructed_response = test_server_helper.server.assembler.handle_fragment(
-                    f,
-                    response_packet.routing_header.hops[0],
-                    response_packet.session_id,
-                );
-            }
-        }
+        test_server_helper.send_fragments_to_server(serialized_message);
+        test_server_helper.wait_for_ack_on_node_3(nr_of_fragments);
 
         let reconstructed_response =
-            reconstructed_response.expect("Expected reconstructed response");
+            test_server_helper.reconstruct_response_on_node_3(nr_of_fragments);
+
         match reconstructed_response {
             Message::Server(ServerBody::RespServerType(st)) => {
                 assert_eq!(st, ServerType::Communication);
             }
             _ => panic!("Expected ServerMessage"),
         }
+    }
+
+    #[test]
+    fn test_register_client() {
+        let mut test_server_helper = TestServerHelper::new();
+
+        assert!(!test_server_helper.server.registered_clients.contains(&6));
+
+        let message =
+            TestServerHelper::test_client_message(ClientCommunicationBody::ReqRegistrationToChat);
+        let serialized_message = test_server_helper.serialize_message(message);
+        let nr_of_fragments = serialized_message.len();
+
+        test_server_helper.send_fragments_to_server(serialized_message);
+        test_server_helper.wait_for_ack_on_node_3(nr_of_fragments);
+
+        assert!(test_server_helper.server.registered_clients.contains(&6));
     }
 }
