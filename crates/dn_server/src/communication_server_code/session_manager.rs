@@ -48,7 +48,11 @@ impl SessionManager {
         }
     }
 
-    pub fn recover_fragment(&self, session_id: SessionId, fragment_index: u64) -> Option<(Fragment, u8)> {
+    pub fn recover_fragment(
+        &self,
+        session_id: SessionId,
+        fragment_index: u64,
+    ) -> Option<(Fragment, u8)> {
         let pending_fragments = self.pending_sessions.get(&session_id)?;
         let node = *self.pending_sessions_destination.get(&session_id)?;
         let fragment = pending_fragments.get(&fragment_index)?.clone();

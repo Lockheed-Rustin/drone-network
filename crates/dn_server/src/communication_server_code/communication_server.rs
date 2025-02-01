@@ -1,6 +1,6 @@
 use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
 use crate::communication_server_code::session_manager::{SessionId, SessionManager};
-use crossbeam_channel::{select, Receiver, Sender};
+use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::assembler::Assembler;
 use dn_message::ServerBody::RespServerType;
@@ -29,6 +29,7 @@ pub struct CommunicationServer {
     packet_recv: Receiver<Packet>,
 
     id: NodeId,
+    running: bool,
     flood_id_counter: u64,
     session_manager: SessionManager,
     pub(crate) assembler: Assembler,
@@ -50,6 +51,7 @@ impl CommunicationServer {
             packet_send,
             packet_recv,
             id,
+            running: false,
             flood_id_counter: 0,
             session_manager: SessionManager::new(),
             registered_clients: HashSet::new(),
@@ -60,12 +62,14 @@ impl CommunicationServer {
 
     pub fn run(&mut self) {
         // TODO: to test
+        self.running = true;
         self.update_network_topology(); // first discovery of the network
-        loop {
-            select! {
+        while self.running {
+            select_biased! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
                         self.handle_command(cmd);
+                        if !self.running { break; }
                     } else {
                         break;
                     }
@@ -73,6 +77,7 @@ impl CommunicationServer {
                 recv(self.packet_recv) -> packet => {
                     if let Ok(p) = packet {
                         self.handle_packet(p);
+                        if !self.running { break; }
                     } else {
                         break;
                     }
@@ -95,6 +100,9 @@ impl CommunicationServer {
             ServerCommand::RemoveSender(node_id) => {
                 self.packet_send.remove(&node_id);
                 self.update_network_topology(); // when removing a sender the topology needs to be updated
+            }
+            ServerCommand::Return => {
+                self.running = false;
             }
         }
     }
@@ -192,7 +200,7 @@ impl CommunicationServer {
     /// If the fragment is successfully recovered, it is encapsulated in a packet and sent through the network.
     /// The packet uses source routing to determine the path to its destination.
     ///
-    /// # Panic
+    /// # Panics
     /// This function panics if the specified fragment does not exist in the session manager.
     /// This indicates that an invalid session ID or fragment index was provided.
     fn recover_fragment(&mut self, session_id: SessionId, fragment_index: u64) {
@@ -224,7 +232,7 @@ impl CommunicationServer {
     /// return path and sends the response to the next node in the return path. Additionally, it
     /// notifies the controller about the packet sent.
     ///
-    /// # Notes
+    /// # Panics
     /// - The call to `send` on the `packet_send` for the next hop may panic if the channel is closed.
     ///   This should not happen unless there are unexpected issues with the communication channels.
     /// - Similarly, the call to `send` on the `controller_send` channel may panic if the channel is
@@ -373,6 +381,16 @@ impl CommunicationServer {
             .expect("Error in controller_send");
     }
 
+    /// Sends message fragments along a predefined route.
+    ///
+    /// The session is registered in the session manager before sending the fragments.
+    /// Each fragment is wrapped in a packet and sent individually.
+    ///
+    /// # Assumptions
+    /// - The `hops` list in `routing_header` is not empty.
+    ///
+    /// # Panics
+    /// - This function may panic if `hops` is unexpectedly empty.
     fn send_fragments(
         &mut self,
         session_id: SessionId,
@@ -395,6 +413,11 @@ impl CommunicationServer {
         }
     }
 
+    /// Sends a message to the specified recipient using source routing.
+    ///
+    /// The message is serialized and split into fragments before being sent.
+    /// # Panics
+    /// If routing to the recipient is not possible, the function will panic.
     fn send_message(&mut self, message: Message, to: NodeId) {
         let hops = self.network_topology.source_routing(self.id, to);
         if !hops.is_empty() {
@@ -403,19 +426,22 @@ impl CommunicationServer {
             let session_id = self.session_manager.get_and_increment_session_id_counter();
             self.send_fragments(session_id, serialized_message, routing_header);
         } else {
-            // TODO: what if hops is empty
             panic!("error in routing");
         }
     }
 
     // possible actions:
 
+    /// Registers a client by adding its ID to the list of registered clients.
     fn register_client(&mut self, client_id: NodeId) {
         self.registered_clients.insert(client_id);
     }
 
+    /// Forwards a communication message to the intended recipient if they are registered.
+    ///
+    /// If the recipient is registered, the message is forwarded. Otherwise, an error message
+    /// indicating an incorrect client ID is sent back to the sender.
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
-        // TODO: to test
         let to = communication_message.to;
         if self.registered_clients.contains(&to) {
             let message: Message = Message::Server(ServerBody::ServerCommunication(
@@ -426,17 +452,20 @@ impl CommunicationServer {
             let message: Message = Message::Server(ServerBody::ServerCommunication(
                 ServerCommunicationBody::ErrWrongClientId,
             ));
-            self.send_message(message.clone(), to);
+            self.send_message(message.clone(), communication_message.from);
         }
     }
 
+    /// Sends a list of all registered clients to the requesting client.
     fn registered_clients_list(&mut self, client_id: NodeId) {
-        // TODO: to test
         let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
         let message = Message::Server(ServerBody::ServerCommunication(RespClientList(client_list)));
         self.send_message(message, client_id);
     }
 
+    /// Sends the type of the server to the specified client.
+    ///
+    /// This function informs the client that the server type is `Communication`.
     fn send_server_type(&mut self, client_id: NodeId) {
         let message = Message::Server(RespServerType(ServerType::Communication));
         self.send_message(message, client_id);
@@ -449,13 +478,14 @@ mod tests {
     use crate::communication_server_code::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
     use dn_controller::ServerEvent;
-    use dn_message::ClientBody::ReqServerType;
-    use dn_message::{ClientCommunicationBody, Message, ServerBody, ServerType};
+    use dn_message::ClientBody::{ClientCommunication, ReqServerType};
+    use dn_message::ServerBody::ServerCommunication;
+    use dn_message::ServerCommunicationBody::{MessageReceive, RespClientList};
+    use dn_message::{ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
     use std::collections::HashMap;
     use wg_2024::packet::{
         FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
     };
-
     // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
 
     #[test]
@@ -720,17 +750,13 @@ mod tests {
     #[test]
     fn test_send_server_type() {
         let mut test_server_helper = TestServerHelper::new();
-        let message = Message::Client(ReqServerType);
-        let serialized_message = test_server_helper.serialize_message(message);
-        let nr_of_fragments = serialized_message.len();
+        let response = test_server_helper.send_message_and_get_response(
+            Message::Client(ReqServerType),
+            vec![6, 3, 1],
+            3,
+        );
 
-        test_server_helper.send_fragments_to_server(serialized_message);
-        test_server_helper.wait_for_ack_on_node_3(nr_of_fragments);
-
-        let reconstructed_response =
-            test_server_helper.reconstruct_response_on_node_3(nr_of_fragments);
-
-        match reconstructed_response {
+        match response {
             Message::Server(ServerBody::RespServerType(st)) => {
                 assert_eq!(st, ServerType::Communication);
             }
@@ -744,14 +770,52 @@ mod tests {
 
         assert!(!test_server_helper.server.registered_clients.contains(&6));
 
-        let message =
-            TestServerHelper::test_client_message(ClientCommunicationBody::ReqRegistrationToChat);
-        let serialized_message = test_server_helper.serialize_message(message);
-        let nr_of_fragments = serialized_message.len();
-
-        test_server_helper.send_fragments_to_server(serialized_message);
-        test_server_helper.wait_for_ack_on_node_3(nr_of_fragments);
+        test_server_helper.register_client_6();
 
         assert!(test_server_helper.server.registered_clients.contains(&6));
+    }
+
+    #[test]
+    fn test_registered_client_list() {
+        let mut test_server_helper = TestServerHelper::new();
+        test_server_helper.register_client_6();
+        let response = test_server_helper.send_message_and_get_response(
+            Message::Client(ClientCommunication(ClientCommunicationBody::ReqClientList)),
+            vec![6, 3, 1],
+            3,
+        );
+        if let Message::Server(ServerCommunication(RespClientList(list))) = response {
+            assert_eq!(list.len(), 1);
+            assert_eq!(list[0], 6);
+        }
+    }
+
+    #[test]
+    fn test_forward_message() {
+        let mut test_server_helper = TestServerHelper::new();
+        let message = Message::Client(ClientCommunication(ClientCommunicationBody::MessageSend(
+            CommunicationMessage {
+                from: 5,
+                to: 6,
+                message: "I wanted to say hi!".to_string(),
+            },
+        )));
+
+        let response = test_server_helper.send_message_and_get_response(message.clone(), vec![5,1], 5);
+        if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrWrongClientId)) = response {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+
+        test_server_helper.register_client_6();
+        // the message is sent from 5 to 1. The dest is 6 so we expect the server to send the fragments to node 3.
+        // This call reconstruct the response in node 3.
+        let response = test_server_helper.send_message_and_get_response(message, vec![5, 1], 3);
+        if let Message::Server(ServerCommunication(MessageReceive(cm))) = response {
+            assert_eq!(cm.from, 5);
+            assert_eq!(cm.to, 6);
+            assert_eq!(cm.message, "I wanted to say hi!");
+        }
     }
 }
