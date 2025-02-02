@@ -16,12 +16,12 @@ use wg_2024::packet::{
 };
 
 // TODO: I could save the paths instead of doing the source routing every time
-// TODO: I should check if I send to the SC all the info he wants (PacketReceived, MessageAssembled, MessageFragmented, PacketSent)
 // TODO: check that the destination of a path is not a drone
 // TODO: remove all the println
 // TODO: various types of message like error unsupported request type
 
-// TODO: move tests in dir and  use pub(in some::module) to access variables
+// TODO: use reference when possible
+// TODO: use shortcuts in case there is not a path (just for ack/nack?)
 pub struct CommunicationServer {
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
@@ -113,9 +113,14 @@ impl CommunicationServer {
     /// and delegating the appropriate action based on its content. The actions may involve
     /// processing message fragments, handling acknowledgments or negative acknowledgments,
     /// or responding to flood requests and responses.
+    /// This function also notifies the simulation controller that a packet has been received.
     pub(crate) fn handle_packet(&mut self, packet: Packet) {
         // TODO: check if the packet is for you (we decided to assume that you are the receiver
         // but what if I use the wrong hops-vector later?)
+        self.controller_send
+            .send(ServerEvent::PacketReceived(packet.clone(), self.id))
+            .expect("Error in controller_send");
+
         if self.check_routing(&packet) {
             let sender_id = packet.routing_header.hops[0];
             match packet.pack_type {
@@ -239,12 +244,17 @@ impl CommunicationServer {
     ///   unexpectedly closed.
     fn send_flood_response(&mut self, mut flood_request: FloodRequest) {
         flood_request.path_trace.push((self.id, NodeType::Server));
-        let hops = flood_request
+        // TODO: to check if the initiator id c'è
+        let mut hops = flood_request
             .path_trace
             .iter()
             .map(|(node_id, _)| *node_id)
             .rev()
-            .collect();
+            .collect::<Vec<_>>();
+        // make sure there is the initiator ID in the path
+        if hops.last() != Some(&flood_request.initiator_id) {
+            hops.push(flood_request.initiator_id);
+        }
 
         let session_id = self.session_manager.get_and_increment_session_id_counter();
         let flood_response_packet = Packet {
@@ -256,13 +266,15 @@ impl CommunicationServer {
             session_id,
         };
 
-        // TODO: assuming the drone connected to the server exists
-        self.packet_send[&flood_response_packet.routing_header.hops[1]]
-            .send(flood_response_packet.clone())
-            .expect("Error in send");
-        self.controller_send
-            .send(ServerEvent::PacketSent(flood_response_packet))
-            .expect("Error in controller_send");
+        // assuming the first drone connected to the server exists
+        if self.packet_send.contains_key(&flood_response_packet.routing_header.hops[1]) {
+            self.packet_send[&flood_response_packet.routing_header.hops[1]]
+                .send(flood_response_packet.clone())
+                .expect("Error in send");
+            self.controller_send
+                .send(ServerEvent::PacketSent(flood_response_packet))
+                .expect("Error in controller_send");
+        }
     }
 
     /// Handles a flood response packet by updating the network topology.
@@ -288,9 +300,13 @@ impl CommunicationServer {
     /// Processes client requests, including server type queries, client registration,
     /// message forwarding, and client list requests. Ignores messages from other servers or for
     /// a content server.
+    /// This function also notifies the simulation controller that a message has been assembled
     fn handle_message(&mut self, message: Message, sender_id: NodeId) {
         match message {
             Message::Client(cb) => {
+                self.controller_send
+                    .send(ServerEvent::MessageAssembled(cb.clone()))
+                    .expect("Error in controller_send");
                 match cb {
                     ClientBody::ReqServerType => {
                         self.send_server_type(sender_id);
@@ -370,15 +386,15 @@ impl CommunicationServer {
 
     fn send_packet(&self, packet: Packet) {
         // assuming hop index already set at 1
-        // assuming the first node connected to the server exists (TODO: probably to check)
-        // TODO: to test
-
-        self.packet_send[&packet.routing_header.hops[1]]
-            .send(packet.clone())
-            .expect("Error in send_packet");
-        self.controller_send
-            .send(ServerEvent::PacketSent(packet))
-            .expect("Error in controller_send");
+        // assuming the first node connected to the server exists
+        if self.packet_send.contains_key(&packet.routing_header.hops[1]) {
+            self.packet_send[&packet.routing_header.hops[1]]
+                .send(packet.clone())
+                .expect("Error in send_packet");
+            self.controller_send
+                .send(ServerEvent::PacketSent(packet))
+                .expect("Error in controller_send");
+        }
     }
 
     /// Sends message fragments along a predefined route.
@@ -421,10 +437,15 @@ impl CommunicationServer {
     fn send_message(&mut self, message: Message, to: NodeId) {
         let hops = self.network_topology.source_routing(self.id, to);
         if !hops.is_empty() {
-            let serialized_message = self.assembler.serialize_message(message);
-            let routing_header = SourceRoutingHeader { hop_index: 1, hops };
-            let session_id = self.session_manager.get_and_increment_session_id_counter();
-            self.send_fragments(session_id, serialized_message, routing_header);
+            if let Message::Server(sb) = message.clone() {
+                let serialized_message = self.assembler.serialize_message(message);
+                self.controller_send
+                    .send(ServerEvent::MessageFragmented(sb))
+                    .expect("Error in controller_send");
+                let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+                let session_id = self.session_manager.get_and_increment_session_id_counter();
+                self.send_fragments(session_id, serialized_message, routing_header);
+            }
         } else {
             panic!("error in routing");
         }
@@ -481,12 +502,16 @@ mod tests {
     use dn_message::ClientBody::{ClientCommunication, ReqServerType};
     use dn_message::ServerBody::ServerCommunication;
     use dn_message::ServerCommunicationBody::{MessageReceive, RespClientList};
-    use dn_message::{ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
+    use dn_message::{
+        ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
+        ServerCommunicationBody, ServerType,
+    };
     use std::collections::HashMap;
     use wg_2024::packet::{
         FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
     };
     // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
+    // TODO: test that the SC receives all the events
 
     #[test]
     fn test_source_routing() {
@@ -801,8 +826,11 @@ mod tests {
             },
         )));
 
-        let response = test_server_helper.send_message_and_get_response(message.clone(), vec![5,1], 5);
-        if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrWrongClientId)) = response {
+        let response =
+            test_server_helper.send_message_and_get_response(message.clone(), vec![5, 1], 5);
+        if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrWrongClientId)) =
+            response
+        {
             assert!(true);
         } else {
             assert!(false);
