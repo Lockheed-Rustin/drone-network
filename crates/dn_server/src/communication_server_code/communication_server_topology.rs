@@ -8,6 +8,7 @@ type Topology = UnGraphMap<NodeId, ()>;
 pub struct CommunicationServerNetworkTopology {
     graph: Topology,
     node_types: HashMap<NodeId, NodeType>,
+    saved_paths: HashMap<NodeId, Vec<NodeId>>, // target_node_id -> path
 }
 
 impl CommunicationServerNetworkTopology {
@@ -15,6 +16,7 @@ impl CommunicationServerNetworkTopology {
         Self {
             graph: Topology::new(),
             node_types: HashMap::new(),
+            saved_paths: HashMap::new(),
         }
     }
 
@@ -57,7 +59,20 @@ impl CommunicationServerNetworkTopology {
         self.node_types.contains_key(node)
     }
 
-    pub fn source_routing(&self, from: NodeId, to: NodeId) -> Vec<NodeId> {
+    pub fn source_routing(&mut self, from: NodeId, to: NodeId) -> Option<Vec<NodeId>> {
+        let destination_type = self.get_node_type(&to);
+        if let Some(NodeType::Client) = destination_type {
+            if self.saved_paths.contains_key(&to) {
+                self.saved_paths.get(&to).cloned()
+            } else {
+                Some(self.bfs(from, to))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn bfs(&mut self, from: NodeId, to: NodeId) -> Vec<NodeId> {
         // todo!: currently using a simple BFS
         // it could use "astar" with pdr as weight
         let mut visited = HashSet::new();
@@ -77,6 +92,7 @@ impl CommunicationServerNetworkTopology {
                 }
                 route.push(from);
                 route.reverse();
+                self.saved_paths.insert(to, route.clone());
                 return route;
             }
 

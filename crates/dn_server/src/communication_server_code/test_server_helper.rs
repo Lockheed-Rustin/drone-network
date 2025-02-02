@@ -71,7 +71,7 @@ impl TestServerHelper {
         topology.add_node(1, NodeType::Server);
         topology.add_node(2, NodeType::Drone);
         topology.add_node(3, NodeType::Drone);
-        topology.add_node(4, NodeType::Drone);
+        topology.add_node(4, NodeType::Client);
         topology.add_node(5, NodeType::Client);
         topology.add_node(6, NodeType::Client);
         topology.add_node(7, NodeType::Drone);

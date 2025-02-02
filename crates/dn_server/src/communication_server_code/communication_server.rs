@@ -16,10 +16,6 @@ use wg_2024::packet::{
 };
 
 // TODO: I could save the paths instead of doing the source routing every time
-// TODO: check that the destination of a path is not a drone
-// TODO: remove all the println
-// TODO: various types of message like error unsupported request type
-
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
 pub struct CommunicationServer {
@@ -213,7 +209,10 @@ impl CommunicationServer {
             .session_manager
             .recover_fragment(session_id, fragment_index)
         {
-            let hops = self.network_topology.source_routing(self.id, dest);
+            let hops = self
+                .network_topology
+                .source_routing(self.id, dest)
+                .expect("Error in routing");
             let packet = Packet {
                 routing_header: SourceRoutingHeader { hop_index: 1, hops },
                 session_id,
@@ -267,7 +266,10 @@ impl CommunicationServer {
         };
 
         // assuming the first drone connected to the server exists
-        if self.packet_send.contains_key(&flood_response_packet.routing_header.hops[1]) {
+        if self
+            .packet_send
+            .contains_key(&flood_response_packet.routing_header.hops[1])
+        {
             self.packet_send[&flood_response_packet.routing_header.hops[1]]
                 .send(flood_response_packet.clone())
                 .expect("Error in send");
@@ -368,7 +370,10 @@ impl CommunicationServer {
         let ack = PacketType::Ack(Ack {
             fragment_index: fragment.fragment_index,
         });
-        let hops = self.network_topology.source_routing(self.id, to);
+        let hops = self
+            .network_topology
+            .source_routing(self.id, to)
+            .expect("Error in routing");
 
         if !hops.is_empty() {
             let packet = Packet {
@@ -387,7 +392,10 @@ impl CommunicationServer {
     fn send_packet(&self, packet: Packet) {
         // assuming hop index already set at 1
         // assuming the first node connected to the server exists
-        if self.packet_send.contains_key(&packet.routing_header.hops[1]) {
+        if self
+            .packet_send
+            .contains_key(&packet.routing_header.hops[1])
+        {
             self.packet_send[&packet.routing_header.hops[1]]
                 .send(packet.clone())
                 .expect("Error in send_packet");
@@ -435,7 +443,10 @@ impl CommunicationServer {
     /// # Panics
     /// If routing to the recipient is not possible, the function will panic.
     fn send_message(&mut self, message: Message, to: NodeId) {
-        let hops = self.network_topology.source_routing(self.id, to);
+        let hops = self
+            .network_topology
+            .source_routing(self.id, to)
+            .expect("Error in routing");
         if !hops.is_empty() {
             if let Message::Server(sb) = message.clone() {
                 let serialized_message = self.assembler.serialize_message(message);
@@ -510,7 +521,7 @@ mod tests {
     use wg_2024::packet::{
         FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
     };
-    // TODO: test with wrong path like the server is a node in the middle of a path. What happens?
+
     // TODO: test that the SC receives all the events
 
     #[test]
@@ -518,18 +529,26 @@ mod tests {
         let helper = TestServerHelper::new();
         let mut server = helper.server;
 
-        let route = server.network_topology.source_routing(server.id, 1);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 1);
 
-        assert!(!route.is_empty());
-        assert_eq!(route[0], server.id);
+        assert_eq!(route, None);
 
-        let route = server.network_topology.source_routing(server.id, 3);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 6)
+            .expect("Error in routing");
 
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
         assert_eq!(route[1], 3);
+        assert_eq!(route[2], 6);
 
-        let route = server.network_topology.source_routing(server.id, 4);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
         // should avoid passing through 5 because it's a client
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
@@ -537,10 +556,15 @@ mod tests {
         assert_eq!(route[2], 7);
         assert_eq!(route[3], 4);
 
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
         server
             .network_topology
             .update_node_type(7, NodeType::Server);
-        let route = server.network_topology.source_routing(server.id, 4);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
         // should avoid passing through 5 because it's a client, but also through 7 because it's a
         // server. So the path is empty
         assert!(route.is_empty());
@@ -549,11 +573,26 @@ mod tests {
         server.network_topology.update_node_type(7, NodeType::Drone);
         // should pass through 5 now because it's a drone and the path is shorter than the one passing
         // through 7
-        let route = server.network_topology.source_routing(server.id, 4);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
         assert!(!route.is_empty());
         assert_eq!(route[0], 1);
         assert_eq!(route[1], 5);
         assert_eq!(route[2], 4);
+
+        // simulating an impossible topology
+        // Server_1 <---> Drone_3 <---> Client_6 <---> Drone_69 <---> target-Client_70
+        server.network_topology.add_node(69, NodeType::Drone);
+        server.network_topology.add_node(70, NodeType::Client);
+        server.network_topology.add_edge(6, 69);
+        server.network_topology.add_edge(70, 69);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 70)
+            .expect("Error in routing");
+        assert!(route.is_empty());
     }
 
     #[test]
