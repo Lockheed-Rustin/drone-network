@@ -208,3 +208,78 @@ impl Default for CommunicationServerNetworkTopology {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use super::*;
+
+    #[test]
+    fn test_source_routing() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+
+        let route = server.network_topology.source_routing(server.id, 1);
+
+        assert_eq!(route, None);
+
+        let route = server
+            .network_topology
+            .source_routing(server.id, 6)
+            .expect("Error in routing");
+
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 3);
+        assert_eq!(route[2], 6);
+
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
+        // should avoid passing through 5 because it's a client
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 3);
+        assert_eq!(route[2], 7);
+        assert_eq!(route[3], 4);
+
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+        server
+            .network_topology
+            .update_node_type(7, NodeType::Server);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
+        // should avoid passing through 5 because it's a client, but also through 7 because it's a
+        // server. So the path is empty
+        assert!(route.is_empty());
+
+        server.network_topology.update_node_type(5, NodeType::Drone);
+        server.network_topology.update_node_type(7, NodeType::Drone);
+        // should pass through 5 now because it's a drone and the path is shorter than the one passing
+        // through 7
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 5);
+        assert_eq!(route[2], 4);
+
+        // simulating an impossible topology
+        // Server_1 <---> Drone_3 <---> Client_6 <---> Drone_69 <---> target-Client_70
+        server.network_topology.add_node(69, NodeType::Drone);
+        server.network_topology.add_node(70, NodeType::Client);
+        server.network_topology.add_edge(6, 69);
+        server.network_topology.add_edge(70, 69);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 70)
+            .expect("Error in routing");
+        assert!(route.is_empty());
+    }
+}

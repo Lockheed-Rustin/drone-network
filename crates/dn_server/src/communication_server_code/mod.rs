@@ -1,7 +1,6 @@
 pub mod communication_server;
-mod communication_server_topology;
 mod session_manager;
-mod server_services;
-mod nack_handler;
+mod communication_server_topology;
+mod handlers;
 #[cfg(test)]
 mod test_server_helper;
