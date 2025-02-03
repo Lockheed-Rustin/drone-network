@@ -65,7 +65,7 @@ impl TestServerHelper {
         }
     }
 
-    fn init_topology(communication_server: &mut CommunicationServer) {
+    pub fn init_topology(communication_server: &mut CommunicationServer) {
         let mut topology = CommunicationServerNetworkTopology::new();
 
         topology.add_node(1, NodeType::Server);

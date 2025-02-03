@@ -15,9 +15,9 @@ use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
 };
 
-// TODO: I could save the paths instead of doing the source routing every time
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
+// TODO: do something when checkrouting returns false?
 pub struct CommunicationServer {
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
@@ -66,16 +66,12 @@ impl CommunicationServer {
                     if let Ok(cmd) = command {
                         self.handle_command(cmd);
                         if !self.running { break; }
-                    } else {
-                        break;
                     }
                 },
                 recv(self.packet_recv) -> packet => {
                     if let Ok(p) = packet {
                         self.handle_packet(p);
                         if !self.running { break; }
-                    } else {
-                        break;
                     }
                 }
             }
@@ -85,17 +81,18 @@ impl CommunicationServer {
     /// Handles incoming commands to modify the server's neighbors.
     ///
     /// This function processes commands sent to the server, allowing the addition or removal
-    /// of packet senders. When a sender is added or removed, the network topology is
-    /// automatically updated to reflect the changes.
+    /// of packet senders. When a sender is added or removed, the network topology is updated to
+    /// reflect the changes.
     fn handle_command(&mut self, command: ServerCommand) {
         match command {
             ServerCommand::AddSender(node_id, sender) => {
                 self.packet_send.insert(node_id, sender);
-                self.update_network_topology(); // when adding a sender the topology needs to be updated
+                self.update_network_topology();
             }
             ServerCommand::RemoveSender(node_id) => {
                 self.packet_send.remove(&node_id);
-                self.update_network_topology(); // when removing a sender the topology needs to be updated
+                self.network_topology.remove_node(node_id);
+                self.update_network_topology();
             }
             ServerCommand::Return => {
                 self.running = false;
@@ -132,12 +129,7 @@ impl CommunicationServer {
     }
 
     fn check_routing(&self, packet: &Packet) -> bool {
-        if packet.routing_header.hops[packet.routing_header.hop_index] != self.id {
-            // TODO: send a nack?
-            false
-        } else {
-            true
-        }
+        packet.routing_header.hops[packet.routing_header.hop_index] == self.id
     }
 
     /// Processes a message fragment and handles its acknowledgment.
@@ -333,8 +325,6 @@ impl CommunicationServer {
 
     /// This function just send a flood request to update the server network topology
     fn update_network_topology(&mut self) {
-        // TODO: maybe to move this function in Topology
-
         // Univocal flood id
         let flood_id = self.flood_id_counter;
         self.flood_id_counter += 1;
@@ -508,8 +498,8 @@ impl CommunicationServer {
 mod tests {
     use crate::communication_server_code::communication_server::CommunicationServer;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
-    use crossbeam_channel::unbounded;
-    use dn_controller::ServerEvent;
+    use crossbeam_channel::{unbounded, Receiver, Sender};
+    use dn_controller::{ServerCommand, ServerEvent};
     use dn_message::ClientBody::{ClientCommunication, ReqServerType};
     use dn_message::ServerBody::ServerCommunication;
     use dn_message::ServerCommunicationBody::{MessageReceive, RespClientList};
@@ -518,20 +508,20 @@ mod tests {
         ServerCommunicationBody, ServerType,
     };
     use std::collections::HashMap;
+    use std::thread;
+    use std::time::Duration;
+    use wg_2024::network::SourceRoutingHeader;
+    use wg_2024::packet::PacketType::MsgFragment;
     use wg_2024::packet::{
         FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
     };
-
-    // TODO: test that the SC receives all the events
 
     #[test]
     fn test_source_routing() {
         let helper = TestServerHelper::new();
         let mut server = helper.server;
 
-        let route = server
-            .network_topology
-            .source_routing(server.id, 1);
+        let route = server.network_topology.source_routing(server.id, 1);
 
         assert_eq!(route, None);
 
@@ -884,5 +874,74 @@ mod tests {
             assert_eq!(cm.to, 6);
             assert_eq!(cm.message, "I wanted to say hi!");
         }
+    }
+
+    #[test]
+    fn test_run() {
+        // receiving events from the controller
+        let (send_from_controller_to_server, recv_from_controller): (
+            Sender<ServerCommand>,
+            Receiver<ServerCommand>,
+        ) = unbounded();
+
+        // sending events to the controller
+        let (send_from_server_to_controller, _recv_from_server): (
+            Sender<ServerEvent>,
+            Receiver<ServerEvent>,
+        ) = unbounded();
+
+        let (send_packet_to_server, packet_recv_1): (Sender<Packet>, Receiver<Packet>) =
+            unbounded();
+        let (packet_send_2, _packet_recv_2): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (packet_send_3, _packet_recv_3): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (packet_send_5, packet_recv_5): (Sender<Packet>, Receiver<Packet>) = unbounded();
+
+        let mut packet_send_map = HashMap::new();
+        packet_send_map.insert(3, packet_send_3);
+        packet_send_map.insert(2, packet_send_2);
+        packet_send_map.insert(5, packet_send_5);
+
+        let mut server = CommunicationServer::new(
+            send_from_server_to_controller,
+            recv_from_controller,
+            packet_send_map,
+            packet_recv_1,
+            1,
+        );
+
+        TestServerHelper::init_topology(&mut server);
+
+        let _handle = thread::spawn(move || {
+            server.run();
+        });
+
+        thread::sleep(Duration::from_millis(10));
+        send_packet_to_server
+            .send(Packet {
+                routing_header: SourceRoutingHeader {
+                    hop_index: 1,
+                    hops: vec![5, 1],
+                },
+                session_id: 111,
+                pack_type: MsgFragment(Fragment {
+                    fragment_index: 0,
+                    total_n_fragments: 1,
+                    length: 0,
+                    data: [0; 128],
+                }),
+            })
+            .expect("Failed to send packet");
+        thread::sleep(Duration::from_millis(10));
+        let _flood_req = packet_recv_5.recv().expect("Failed to recv");
+        let ack = packet_recv_5.recv().expect("Failed to recv");
+        if let PacketType::Ack(a) = ack.pack_type {
+            assert_eq!(a.fragment_index, 0);
+        } else {
+            panic!("expected ack");
+        }
+        thread::sleep(Duration::from_millis(10));
+        send_from_controller_to_server
+            .send(ServerCommand::Return)
+            .expect("Failed to send command to server");
     }
 }

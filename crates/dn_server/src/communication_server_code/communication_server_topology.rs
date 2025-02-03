@@ -35,6 +35,10 @@ impl CommunicationServerNetworkTopology {
         }
     }
 
+    pub fn remove_node(&mut self, node_id: NodeId) {
+        self.graph.remove_node(node_id);
+    }
+
     pub fn remove_edge(&mut self, node_a: NodeId, node_b: NodeId) {
         self.graph.remove_edge(node_a, node_b);
     }
