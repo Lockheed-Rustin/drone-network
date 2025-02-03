@@ -3,34 +3,31 @@ use crate::communication_server_code::session_manager::{SessionId, SessionManage
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::assembler::Assembler;
-use dn_message::ServerBody::RespServerType;
-use dn_message::ServerCommunicationBody::RespClientList;
-use dn_message::{
-    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
-    ServerCommunicationBody, ServerType,
-};
+use dn_message::{ClientBody, ClientCommunicationBody, Message};
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{
-    Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
+    Ack, FloodRequest, FloodResponse, Fragment, NodeType, Packet, PacketType,
 };
 
+// TODO: nack tests to be checked
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
-// TODO: do something when checkrouting returns false?
+// TODO: do something when check_routing returns false?
+// TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol
 pub struct CommunicationServer {
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
     packet_send: HashMap<NodeId, Sender<Packet>>,
     packet_recv: Receiver<Packet>,
 
-    id: NodeId,
+    pub(crate) id: NodeId,
     running: bool,
     flood_id_counter: u64,
-    session_manager: SessionManager,
+    pub(crate) session_manager: SessionManager,
     pub(crate) assembler: Assembler,
     pub(crate) network_topology: CommunicationServerNetworkTopology,
-    registered_clients: HashSet<NodeId>,
+    pub(crate) registered_clients: HashSet<NodeId>,
 }
 
 impl CommunicationServer {
@@ -57,7 +54,6 @@ impl CommunicationServer {
     }
 
     pub fn run(&mut self) {
-        // TODO: to test
         self.running = true;
         self.update_network_topology(); // first discovery of the network
         while self.running {
@@ -108,8 +104,6 @@ impl CommunicationServer {
     /// or responding to flood requests and responses.
     /// This function also notifies the simulation controller that a packet has been received.
     pub(crate) fn handle_packet(&mut self, packet: Packet) {
-        // TODO: check if the packet is for you (we decided to assume that you are the receiver
-        // but what if I use the wrong hops-vector later?)
         self.controller_send
             .send(ServerEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
@@ -145,81 +139,9 @@ impl CommunicationServer {
         }
     }
 
-    fn handle_nack(
-        &mut self,
-        nack: Nack,
-        session_id: SessionId,
-        source_routing_header: SourceRoutingHeader,
-    ) {
-        // If I received a Nack something went wrong with a msg-fragment packet
-        match nack.nack_type {
-            NackType::ErrorInRouting(error_node) => self.error_in_routing(
-                source_routing_header.hops[0],
-                error_node,
-                nack.fragment_index,
-                session_id,
-            ),
-            NackType::DestinationIsDrone => {
-                self.network_topology
-                    .update_node_type(source_routing_header.hops[0], NodeType::Drone);
-            }
-            NackType::Dropped => {
-                // TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol
-                self.recover_fragment(session_id, nack.fragment_index);
-            }
-            NackType::UnexpectedRecipient(_) => {
-                self.update_network_topology();
-                self.recover_fragment(session_id, nack.fragment_index);
-            }
-        }
-    }
 
-    fn error_in_routing(
-        &mut self,
-        last_node: NodeId,
-        error_node: NodeId,
-        fragment_index: u64,
-        session_id: SessionId,
-    ) {
-        // update the topology
-        self.network_topology.remove_edge(last_node, error_node);
-        self.update_network_topology(); // TODO: is this needed?
-                                        // resend the fragment
-        self.recover_fragment(session_id, fragment_index);
-    }
 
-    /// Attempts to recover a message fragment associated with a session.
-    ///
-    /// If the fragment is successfully recovered, it is encapsulated in a packet and sent through the network.
-    /// The packet uses source routing to determine the path to its destination.
-    ///
-    /// # Panics
-    /// This function panics if the specified fragment does not exist in the session manager.
-    /// This indicates that an invalid session ID or fragment index was provided.
-    fn recover_fragment(&mut self, session_id: SessionId, fragment_index: u64) {
-        if let Some((fragment, dest)) = self
-            .session_manager
-            .recover_fragment(session_id, fragment_index)
-        {
-            let hops = self
-                .network_topology
-                .source_routing(self.id, dest)
-                .expect("Error in routing");
-            let packet = Packet {
-                routing_header: SourceRoutingHeader { hop_index: 1, hops },
-                session_id,
-                pack_type: PacketType::MsgFragment(fragment),
-            };
-            self.send_packet(packet);
-        } else {
-            panic!(
-                "tried to recover a fragment that is not in the session_manager.\n\
-                    session_id: {}\n\
-                    fragment_index: {}\n",
-                session_id, fragment_index
-            );
-        }
-    }
+
 
     /// Sends a flood response packet in reply to a flood request.
     ///
@@ -324,7 +246,7 @@ impl CommunicationServer {
     }
 
     /// This function just send a flood request to update the server network topology
-    fn update_network_topology(&mut self) {
+    pub(crate) fn update_network_topology(&mut self) {
         // Univocal flood id
         let flood_id = self.flood_id_counter;
         self.flood_id_counter += 1;
@@ -379,7 +301,7 @@ impl CommunicationServer {
         }
     }
 
-    fn send_packet(&self, packet: Packet) {
+    pub(crate) fn send_packet(&self, packet: Packet) {
         // assuming hop index already set at 1
         // assuming the first node connected to the server exists
         if self
@@ -432,7 +354,7 @@ impl CommunicationServer {
     /// The message is serialized and split into fragments before being sent.
     /// # Panics
     /// If routing to the recipient is not possible, the function will panic.
-    fn send_message(&mut self, message: Message, to: NodeId) {
+    pub(crate) fn send_message(&mut self, message: Message, to: NodeId) {
         let hops = self
             .network_topology
             .source_routing(self.id, to)
@@ -451,70 +373,16 @@ impl CommunicationServer {
             panic!("error in routing");
         }
     }
-
-    // possible actions:
-
-    /// Registers a client by adding its ID to the list of registered clients.
-    fn register_client(&mut self, client_id: NodeId) {
-        self.registered_clients.insert(client_id);
-    }
-
-    /// Forwards a communication message to the intended recipient if they are registered.
-    ///
-    /// If the recipient is registered, the message is forwarded. Otherwise, an error message
-    /// indicating an incorrect client ID is sent back to the sender.
-    fn forward_message(&mut self, communication_message: CommunicationMessage) {
-        let to = communication_message.to;
-        if self.registered_clients.contains(&to) {
-            let message: Message = Message::Server(ServerBody::ServerCommunication(
-                ServerCommunicationBody::MessageReceive(communication_message),
-            ));
-            self.send_message(message.clone(), to);
-        } else {
-            let message: Message = Message::Server(ServerBody::ServerCommunication(
-                ServerCommunicationBody::ErrWrongClientId,
-            ));
-            self.send_message(message.clone(), communication_message.from);
-        }
-    }
-
-    /// Sends a list of all registered clients to the requesting client.
-    fn registered_clients_list(&mut self, client_id: NodeId) {
-        let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
-        let message = Message::Server(ServerBody::ServerCommunication(RespClientList(client_list)));
-        self.send_message(message, client_id);
-    }
-
-    /// Sends the type of the server to the specified client.
-    ///
-    /// This function informs the client that the server type is `Communication`.
-    fn send_server_type(&mut self, client_id: NodeId) {
-        let message = Message::Server(RespServerType(ServerType::Communication));
-        self.send_message(message, client_id);
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::communication_server_code::communication_server::CommunicationServer;
+    use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
-    use crossbeam_channel::{unbounded, Receiver, Sender};
-    use dn_controller::{ServerCommand, ServerEvent};
-    use dn_message::ClientBody::{ClientCommunication, ReqServerType};
-    use dn_message::ServerBody::ServerCommunication;
-    use dn_message::ServerCommunicationBody::{MessageReceive, RespClientList};
-    use dn_message::{
-        ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
-        ServerCommunicationBody, ServerType,
-    };
-    use std::collections::HashMap;
+    use crossbeam_channel::unbounded;
     use std::thread;
     use std::time::Duration;
-    use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::PacketType::MsgFragment;
-    use wg_2024::packet::{
-        FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, Packet, PacketType,
-    };
 
     #[test]
     fn test_source_routing() {
@@ -683,103 +551,6 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_nack() {
-        let mut test_server_helper = TestServerHelper::new();
-
-        // ERROR IN ROUTING NACK
-        let fragment_index = 23;
-        let (packet, session_id) = TestServerHelper::test_received_packet(
-            PacketType::Nack(Nack {
-                fragment_index,
-                nack_type: NackType::ErrorInRouting(3),
-            }),
-            vec![2, 1],
-        );
-        let pending_fragment = TestServerHelper::test_fragment(fragment_index, 100);
-        test_server_helper.server.session_manager.add_session(
-            session_id,
-            vec![pending_fragment],
-            6,
-        );
-
-        assert!(test_server_helper
-            .server
-            .network_topology
-            .contains_edge(2, 3));
-        test_server_helper.server.handle_packet(packet);
-        assert!(!test_server_helper
-            .server
-            .network_topology
-            .contains_edge(2, 3));
-
-        let flood_req = test_server_helper
-            .packet_recv_3
-            .try_recv()
-            .expect("Expected flood_req because of update topology");
-        match flood_req.pack_type {
-            PacketType::FloodRequest(_) => {}
-            _ => panic!("Expected FloodRequest pack"),
-        }
-        let received_packet = test_server_helper
-            .packet_recv_3
-            .try_recv()
-            .expect("No recover packet received on channel 3");
-        assert_eq!(received_packet.session_id, session_id);
-
-        // DESTINATION IS DRONE NACK
-        let (packet, _session_id) = TestServerHelper::test_received_packet(
-            PacketType::Nack(Nack {
-                fragment_index: 0,
-                nack_type: NackType::DestinationIsDrone,
-            }),
-            vec![5, 1],
-        );
-        assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
-            Some(&NodeType::Client)
-        );
-        test_server_helper.server.handle_packet(packet);
-        assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
-            Some(&NodeType::Drone)
-        );
-        // reset to client
-        test_server_helper
-            .server
-            .network_topology
-            .update_node_type(5, NodeType::Client);
-        assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
-            Some(&NodeType::Client)
-        );
-
-        // PACKET DROPPED
-        let fragment_index = 25;
-        let (packet, session_id) = TestServerHelper::test_received_packet(
-            PacketType::Nack(Nack {
-                fragment_index,
-                nack_type: NackType::Dropped,
-            }),
-            vec![3, 1],
-        );
-        let fragment = TestServerHelper::test_fragment(fragment_index, 1);
-        test_server_helper
-            .server
-            .session_manager
-            .add_session(session_id, vec![fragment], 6);
-
-        test_server_helper.server.handle_packet(packet);
-        let received_packet = test_server_helper
-            .packet_recv_3
-            .try_recv()
-            .expect("No recover packet received on channel 3");
-        assert_eq!(received_packet.session_id, session_id);
-
-        // UNEXPECTED RECIPIENT
-        // nothing to do
-    }
-
-    #[test]
     fn test_send_ack() {
         let mut test_server_helper = TestServerHelper::new();
 
@@ -798,81 +569,6 @@ mod tests {
                 assert_eq!(c.fragment_index, 13)
             }
             _ => panic!("Expected Ack"),
-        }
-    }
-
-    #[test]
-    fn test_send_server_type() {
-        let mut test_server_helper = TestServerHelper::new();
-        let response = test_server_helper.send_message_and_get_response(
-            Message::Client(ReqServerType),
-            vec![6, 3, 1],
-            3,
-        );
-
-        match response {
-            Message::Server(ServerBody::RespServerType(st)) => {
-                assert_eq!(st, ServerType::Communication);
-            }
-            _ => panic!("Expected ServerMessage"),
-        }
-    }
-
-    #[test]
-    fn test_register_client() {
-        let mut test_server_helper = TestServerHelper::new();
-
-        assert!(!test_server_helper.server.registered_clients.contains(&6));
-
-        test_server_helper.register_client_6();
-
-        assert!(test_server_helper.server.registered_clients.contains(&6));
-    }
-
-    #[test]
-    fn test_registered_client_list() {
-        let mut test_server_helper = TestServerHelper::new();
-        test_server_helper.register_client_6();
-        let response = test_server_helper.send_message_and_get_response(
-            Message::Client(ClientCommunication(ClientCommunicationBody::ReqClientList)),
-            vec![6, 3, 1],
-            3,
-        );
-        if let Message::Server(ServerCommunication(RespClientList(list))) = response {
-            assert_eq!(list.len(), 1);
-            assert_eq!(list[0], 6);
-        }
-    }
-
-    #[test]
-    fn test_forward_message() {
-        let mut test_server_helper = TestServerHelper::new();
-        let message = Message::Client(ClientCommunication(ClientCommunicationBody::MessageSend(
-            CommunicationMessage {
-                from: 5,
-                to: 6,
-                message: "I wanted to say hi!".to_string(),
-            },
-        )));
-
-        let response =
-            test_server_helper.send_message_and_get_response(message.clone(), vec![5, 1], 5);
-        if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrWrongClientId)) =
-            response
-        {
-            assert!(true);
-        } else {
-            assert!(false);
-        }
-
-        test_server_helper.register_client_6();
-        // the message is sent from 5 to 1. The dest is 6 so we expect the server to send the fragments to node 3.
-        // This call reconstruct the response in node 3.
-        let response = test_server_helper.send_message_and_get_response(message, vec![5, 1], 3);
-        if let Message::Server(ServerCommunication(MessageReceive(cm))) = response {
-            assert_eq!(cm.from, 5);
-            assert_eq!(cm.to, 6);
-            assert_eq!(cm.message, "I wanted to say hi!");
         }
     }
 
