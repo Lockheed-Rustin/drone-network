@@ -279,7 +279,7 @@ impl Drop for SimulationController {
                     sender.send(DroneCommand::Crash).unwrap();
                     // remove all senders
                     for neighbor in self.topology.neighbors(id) {
-                        sender.send(DroneCommand::RemoveSender(neighbor)).unwrap();
+                        _ = sender.send(DroneCommand::RemoveSender(neighbor));
                     }
                 }
                 NodeType::Client { sender } => sender.send(ClientCommand::Return).unwrap(),
