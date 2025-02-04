@@ -8,7 +8,6 @@ use std::cmp::Ordering;
 use wg_2024::network::{NodeId};
 use wg_2024::packet::NodeType;
 
-/// TODO: check fn x calcolo path minimo
 
 
 //---------- CUSTOM TYPES ----------//
@@ -17,9 +16,9 @@ type FloodPath = Vec<(NodeId, NodeType)>;
 static K: f64 = 0.8;
 
 
+
 //---------- QUEUE PRIO TYPE ----------//
 #[derive(Copy, Clone, Debug)]
-
 struct QP {
     prio: f64,
 }
@@ -62,15 +61,6 @@ impl Ord for QP {
 
 
 
-
-//---------- ERROR'S ENUMS ----------//
-pub enum SourceRoutingError {
-    DestinationNotFound,
-    UnreachableDestination,
-}
-
-
-
 //---------- STRUCT SERVER INFO ----------//
 pub struct ServerInfo {
     path: Path,
@@ -91,7 +81,6 @@ impl Default for ServerInfo {
 }
 
 impl ServerInfo {
-
     pub fn inc_packet_exchanged(&mut self) {
         self.packet_exchanged += 1;
     }
@@ -101,14 +90,12 @@ impl ServerInfo {
 
 //---------- STRUCT DRONE INFO ----------//
 #[derive(Default)]
-
 pub struct DroneInfo {
     packet_received: u64,
     packet_dropped: u64,
 }
 
 impl DroneInfo {
-
     pub fn get_pdr(&self) -> f64 {
         if self.packet_received == 0 {0.0}
         else {(self.packet_dropped as f64)/(self.packet_received as f64)}
@@ -166,7 +153,7 @@ impl ClientRouting {
 
     pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId)  {
         if self.topology.remove_edge(self.client_id, neighbor).is_some() {
-            self.compute_routing_table();
+            self.compute_routing_paths();
 
             for (_, server_info) in self.servers_info.iter_mut() {
                 if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
@@ -176,21 +163,20 @@ impl ClientRouting {
         }
     }
 
-    pub fn add_channel_to_neighbor(&mut self, neighbor: NodeId)  {
+    pub fn add_channel_to_neighbor(&mut self, neighbor: NodeId) -> Option<Vec<(NodeId, Path)>> {
         if self.topology.add_edge(self.client_id, neighbor, 1.0).is_none() {
-            self.compute_routing_table();
-
-            for (_, server_info) in self.servers_info.iter_mut() {
-                if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
-                    server_info.reachable = false;
-                }
-            }
+            //If new edge is added
+            self.compute_routing_paths()
+        }
+        else {
+            //nothing changed: no need to recompute path
+            None
         }
     }
 
     pub fn remove_drone(&mut self, drone: NodeId)  {
         if self.topology.remove_node(drone) {
-            self.compute_routing_table();
+            self.compute_routing_paths();
 
             for (_, server_info) in self.servers_info.iter_mut() {
                 if server_info.path.contains(&drone) {
@@ -200,7 +186,7 @@ impl ClientRouting {
         }
     }
 
-    pub fn add_path(&mut self, path: FloodPath) -> Option<Vec<NodeId>>  {
+    pub fn add_path(&mut self, path: FloodPath) -> Option<Vec<(NodeId, Path)>>  {
         //check if path is empty and
         let mut iter = path.iter();
         let mut last = match iter.next() {
@@ -208,6 +194,7 @@ impl ClientRouting {
             None => return None, //Case empty path
         };
 
+        let mut something_changed = false;
         for &(node, node_type) in iter {
             //add new nodes to topology
             if !self.topology.contains_node(node) {
@@ -223,21 +210,23 @@ impl ClientRouting {
                         self.clients.insert(node);
                     }
                 }
+                something_changed = true;
             }
 
             //add new edges to topology
             if !self.topology.contains_edge(node, last) {
                 self.topology.add_edge(node, last, 1.0);
+                something_changed = true;
             }
             last = node;
         }
 
-        self.compute_routing_table()
-    }
-
-    fn reset_weights(&mut self) {
-        for (_, _, edge_weight) in self.topology.all_edges_mut() {
-            *edge_weight = 1.0;
+        //no need to recompute path if nothing has been changed
+        if something_changed {
+            self.compute_routing_paths()
+        }
+        else {
+            None
         }
     }
 
@@ -270,39 +259,38 @@ impl ClientRouting {
 
 
     //---------- compute source routing ----------//
-
     /// Returns path to server as Vec<NodeId>.
     ///
     /// If the destination server doesn't exist in the topology or the server os actually unreachable,
     /// returns an appropriate error
-    pub fn get_path(&self, destination: NodeId) -> Result<Path, SourceRoutingError> {
+    pub fn get_path(&self, destination: NodeId) -> Option<Path> {
         match self.servers_info.get(&destination) {
             Some(server_info) => {
                 if server_info.reachable {
-                    Ok(server_info.path.clone())
+                    Some(server_info.path.clone())
                 }
                 else {
-                    Err(SourceRoutingError::UnreachableDestination)
+                    None
                 }
             }
-            None => {
-                Err(SourceRoutingError::DestinationNotFound)
-            }
+            None => None
         }
     }
 
     /// Update the information about path from client to the connected servers
     ///
     /// Return an option to a list of servers which became reachable after updating their routing paths.
-    fn compute_routing_table(&mut self) -> Option<Vec<NodeId>> {
-
-        let mut servers_became_reachable: Vec<NodeId> = Vec::new();
+    fn compute_routing_paths(&mut self) -> Option<Vec<(NodeId, Path)>> {
+        let mut servers_became_reachable: Vec<(NodeId, Path)> = Vec::new();
 
         if self.servers_info.is_empty(){
             return None; //No server in the topology
         }
 
-        self.reset_weights();
+        //reset edge's weights
+        for (_, _, edge_weight) in self.topology.all_edges_mut() {
+            *edge_weight = 1.0;
+        }
 
         let mut total_packet = 0;
         for (_, info) in self.servers_info.iter_mut() {
@@ -329,7 +317,7 @@ impl ClientRouting {
 
                     if !server_info.reachable {
                         server_info.reachable = true;
-                        servers_became_reachable.push(server);
+                        servers_became_reachable.push((server, path.clone()));
                     }
                 }
 
@@ -352,12 +340,20 @@ impl ClientRouting {
 
     /// Returns the path to destination with the respective weight if exists, None otherwise.
     fn compute_path_to_server(&self, destination: NodeId) -> Option<Path> {
+        //TODO: valutare se spostare il check in compute_routing_paths
+        //check if topology contains destination server
+        if !self.topology.contains_node(destination) {
+            return None
+        }
+
+        //init
         let mut queue: BinaryHeap<(Reverse<QP>, NodeId)> = BinaryHeap::new();
         queue.push((Reverse(QP::new(0.0)), self.client_id));
 
         let mut distances: HashMap<NodeId, (NodeId, f64)> = HashMap::new(); //node_id -> (pred_id, node_distance)
         let mut visited: HashSet<NodeId> = HashSet::new();
 
+        //search the shortest path
         while !visited.contains(&destination) && !queue.is_empty() {
             if let Some(&(Reverse(qp), node)) = queue.peek() {
                 let distance = qp.prio;
@@ -393,6 +389,7 @@ impl ClientRouting {
             }
         }
 
+        //reconstruct path or return None if path doesn't exist
         if visited.contains(&destination) {
             let mut path: Path = Vec::new();
             path.push(destination);
