@@ -76,6 +76,7 @@ impl Client {
 
     fn remove_sender(&mut self, n: NodeId) {
         self.packet_send.remove(&n);
+        self.source_routing.remove_channel_to_neighbor(n);
     }
 
     fn add_sender(&mut self, n: NodeId, sender: Sender<Packet>) {

@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use petgraph::data::Build;
-use petgraph::prelude::{EdgeRef, UnGraphMap};
+use petgraph::prelude::UnGraphMap;
 
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
+use std::cmp::Ordering;
 use wg_2024::network::{NodeId};
 use wg_2024::packet::NodeType;
-use dn_controller::Topology;
 
 /// TODO: check fn x calcolo path minimo
 
@@ -15,6 +15,51 @@ use dn_controller::Topology;
 type Path = Vec<NodeId>;
 type FloodPath = Vec<(NodeId, NodeType)>;
 static K: f64 = 0.8;
+
+
+//---------- QUEUE PRIO TYPE ----------//
+#[derive(Copy, Clone, Debug)]
+
+struct QP {
+    prio: f64,
+}
+
+impl QP {
+    pub fn new(prio: f64) -> Self {
+        Self {
+            prio,
+        }
+    }
+}
+
+impl PartialEq for QP {
+    fn eq(&self, other: &Self) -> bool {
+        self.prio == other.prio
+    }
+}
+
+impl Eq for QP {}
+
+impl PartialOrd for QP {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for QP {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.prio.is_nan() && other.prio.is_nan() {
+            Ordering::Equal
+        } else if self.prio.is_nan() {
+            Ordering::Greater
+        } else if other.prio.is_nan() {
+            Ordering::Less
+        } else {
+            self.prio.total_cmp(&other.prio)
+        }
+    }
+}
+
 
 
 
@@ -34,8 +79,8 @@ pub struct ServerInfo {
     path_weight: f64,
 }
 
-impl ServerInfo {
-    pub fn new() -> Self {
+impl Default for ServerInfo {
+    fn default() -> Self {
         Self {
             path: Vec::new(),
             reachable: false,
@@ -43,15 +88,9 @@ impl ServerInfo {
             path_weight: 1.0,
         }
     }
+}
 
-    pub fn contains_edge(&self, node1: NodeId, node2: NodeId) -> bool {
-        for i in 0..self.path.len() - 1 {
-            if (self.path[i] == node1 && self.path[i + 1] == node2) || (self.path[i] == node2 && self.path[i + 1] == node1) {
-                return true;
-            }
-        }
-        false
-    }
+impl ServerInfo {
 
     pub fn inc_packet_exchanged(&mut self) {
         self.packet_exchanged += 1;
@@ -61,20 +100,18 @@ impl ServerInfo {
 
 
 //---------- STRUCT DRONE INFO ----------//
+#[derive(Default)]
+
 pub struct DroneInfo {
     packet_received: u64,
     packet_dropped: u64,
 }
+
 impl DroneInfo {
-    pub fn new() -> Self {
-        Self {
-            packet_received: 0,
-            packet_dropped: 0,
-        }
-    }
 
     pub fn get_pdr(&self) -> f64 {
-        if self.packet_received == 0 {0.0} else {(self.packet_dropped as f64)/(self.packet_received as f64)}
+        if self.packet_received == 0 {0.0}
+        else {(self.packet_dropped as f64)/(self.packet_received as f64)}
     }
 
     pub fn inc_corret_send(&mut self) {
@@ -116,7 +153,7 @@ impl ClientRouting {
     }
 
 
-    //topology modifier
+    //---------- topology modifier ----------//
     pub fn reset_topology(&mut self) {
         self.topology.clear();
         self.topology.add_node(self.client_id);
@@ -128,25 +165,37 @@ impl ClientRouting {
     }
 
     pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId)  {
-        self.topology.remove_edge(self.client_id, neighbor);
+        if self.topology.remove_edge(self.client_id, neighbor).is_some() {
+            self.compute_routing_table();
 
-        self.compute_routing_table();
+            for (_, server_info) in self.servers_info.iter_mut() {
+                if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
+                    server_info.reachable = false;
+                }
+            }
+        }
+    }
 
-        for (_, server_info) in self.servers_info.iter_mut() {
-            if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
-                server_info.reachable = false;
+    pub fn add_channel_to_neighbor(&mut self, neighbor: NodeId)  {
+        if self.topology.add_edge(self.client_id, neighbor, 1.0).is_none() {
+            self.compute_routing_table();
+
+            for (_, server_info) in self.servers_info.iter_mut() {
+                if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
+                    server_info.reachable = false;
+                }
             }
         }
     }
 
     pub fn remove_drone(&mut self, drone: NodeId)  {
-        self.topology.remove_node(drone);
+        if self.topology.remove_node(drone) {
+            self.compute_routing_table();
 
-        self.compute_routing_table();
-
-        for (_, server_info) in self.servers_info.iter_mut() {
-            if server_info.path.contains(&drone) {
-                server_info.reachable = false;
+            for (_, server_info) in self.servers_info.iter_mut() {
+                if server_info.path.contains(&drone) {
+                    server_info.reachable = false;
+                }
             }
         }
     }
@@ -165,14 +214,10 @@ impl ClientRouting {
                 self.topology.add_node(node);
                 match &node_type {
                     NodeType::Drone => {
-                        if !self.drones_info.contains_key(&node) {
-                            self.drones_info.insert(node, DroneInfo::new());
-                        }
+                        self.drones_info.entry(node).or_default();
                     }
                     NodeType::Server => {
-                        if !self.servers_info.contains_key(&node) {
-                            self.servers_info.insert(node, ServerInfo::new());
-                        }
+                        self.servers_info.entry(node).or_default();
                     }
                     NodeType::Client => {
                         self.clients.insert(node);
@@ -196,7 +241,7 @@ impl ClientRouting {
         }
     }
 
-    /// Add given weight to given path.
+    /// Add given weight to given path, except the edge between client and the first node.
     ///
     /// Return if it isn't at least 2 nodes, cause there can be a path.
     ///
@@ -206,9 +251,8 @@ impl ClientRouting {
     fn add_weight_to_path(&mut self, path: &Path, weight: f64) {
         let mut iter = path.iter();
 
-        match iter.next() {
-            None => return, //path empty
-            _ => {}, //skip client itself
+        if iter.next().is_none() {
+            return; //path empty
         };
 
         let mut last = match iter.next() {
@@ -225,7 +269,7 @@ impl ClientRouting {
     }
 
 
-    //compute source routing
+    //---------- compute source routing ----------//
 
     /// Returns path to server as Vec<NodeId>.
     ///
@@ -267,31 +311,34 @@ impl ClientRouting {
         let mean = (total_packet as f64) / (self.servers_info.len() as f64);
 
         //ord servers: heaviest "path" first
-        let mut ord_vec: BinaryHeap<(f64, NodeId)> = BinaryHeap::new();
+        let mut ord_vec: BinaryHeap<(QP, NodeId)> = BinaryHeap::new();
         for (server, info) in self.servers_info.iter_mut() {
             info.path_weight = ((info.packet_exchanged as f64 / mean) + (K * info.path_weight)) / (1.0+K);
-            ord_vec.push((info.path_weight, *server));
+            ord_vec.push((QP::new(info.path_weight), *server));
             info.packet_exchanged = 0;
         }
 
         //compute single paths
         for (_, server) in ord_vec {
             if let Some(path) = self.compute_path_to_server(server) {
+                let mut weight = 0.0;
                 if let Some(server_info) = self.servers_info.get_mut(&server) {
-                    self.add_weight_to_path(&path, server_info.path_weight);
+                    weight = server_info.path_weight;
 
-                    server_info.path = path;
+                    server_info.path = path.clone();
 
                     if !server_info.reachable {
                         server_info.reachable = true;
                         servers_became_reachable.push(server);
                     }
                 }
-            }
-            else {
-                if let Some(server_info) = self.servers_info.get_mut(&server) {
-                    server_info.reachable = false;
+
+                if weight != 0.0 {
+                    self.add_weight_to_path(&path, weight);
                 }
+            }
+            else if let Some(server_info) = self.servers_info.get_mut(&server) {
+                server_info.reachable = false;
             }
         }
 
@@ -305,14 +352,15 @@ impl ClientRouting {
 
     /// Returns the path to destination with the respective weight if exists, None otherwise.
     fn compute_path_to_server(&self, destination: NodeId) -> Option<Path> {
-        let mut queue: BinaryHeap<(Reverse<f64>, NodeId)> = BinaryHeap::new();
-        queue.push((Reverse(0.0), self.client_id));
+        let mut queue: BinaryHeap<(Reverse<QP>, NodeId)> = BinaryHeap::new();
+        queue.push((Reverse(QP::new(0.0)), self.client_id));
 
         let mut distances: HashMap<NodeId, (NodeId, f64)> = HashMap::new(); //node_id -> (pred_id, node_distance)
         let mut visited: HashSet<NodeId> = HashSet::new();
 
         while !visited.contains(&destination) && !queue.is_empty() {
-            if let Some(&(Reverse(distance), node)) = queue.peek() {
+            if let Some(&(Reverse(qp), node)) = queue.peek() {
+                let distance = qp.prio;
                 if !visited.contains(&node) {
                     visited.insert(node);
 
@@ -326,9 +374,9 @@ impl ClientRouting {
                                 if let Some(edge_weight) = self.topology.edge_weight(node, neighbor) {
                                     if let Some(drone_info) = self.drones_info.get(&neighbor) {
                                         let total_distance = (distance + edge_weight) * (1.0 + drone_info.get_pdr());
-                                        queue.push((Reverse(total_distance), neighbor));
+                                        queue.push((Reverse(QP::new(total_distance)), neighbor));
 
-                                        if let Some(&(pred, pred_weight)) = distances.get(&neighbor) {
+                                        if let Some(&(_, pred_weight)) = distances.get(&neighbor) {
                                             if pred_weight > total_distance {
                                                 distances.insert(neighbor, (node, total_distance));
                                             }
