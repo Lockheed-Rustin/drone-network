@@ -41,7 +41,13 @@ impl CommunicationServer {
                 PacketType::Nack(nack) => {
                     self.handle_nack(nack, packet.session_id, packet.routing_header)
                 }
-                PacketType::Ack(ack) => self.session_manager.handle_ack(ack, &packet.session_id),
+                PacketType::Ack(ack) => {
+                    // update the estimated pdr for the last path used to go to the ack sender
+                    for n in self.network_topology.get_saved_path(&sender_id).iter().skip(1) {
+                        self.network_topology.update_estimated_pdr(*n, false);
+                    }
+                    self.session_manager.handle_ack(ack, &packet.session_id);
+                }
                 PacketType::FloodRequest(f_req) => self.send_flood_response(f_req),
                 PacketType::FloodResponse(f_res) => self.handle_flood_response(f_res),
             }
@@ -60,5 +66,33 @@ impl CommunicationServer {
     /// * `true` if the packet is intended for this server, otherwise `false`.
     fn check_routing(&self, packet: &Packet) -> bool {
         packet.routing_header.hops[packet.routing_header.hop_index] == self.id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use dn_message::Message;
+    use dn_message::ServerBody::ErrUnsupportedRequestType;
+    use wg_2024::packet::Ack;
+
+    #[test]
+    fn test_update_pdr_when_receiving_ack() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+        server.send_message(Message::Server(ErrUnsupportedRequestType), 6);
+        server.network_topology.update_estimated_pdr(3, true); // pdr-3 = 40
+
+        assert_eq!(server.network_topology.get_node_cost(&3).unwrap(), 40);
+
+        let (packet, _session_id) = TestServerHelper::test_received_packet(
+            PacketType::Ack(Ack { fragment_index: 0 }),
+            vec![6, 3, 1],
+        );
+        server.handle_packet(packet);
+
+        // pdr-3 should be = 24
+        assert_eq!(server.network_topology.get_node_cost(&3).unwrap(), 24);
     }
 }

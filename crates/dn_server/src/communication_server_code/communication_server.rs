@@ -7,10 +7,11 @@ use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
 use crate::communication_server_code::pending_message_queue::PendingMessagesQueue;
+// TODO: merge main
 // TODO: nack tests to be checked
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
-// TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol
+// TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol. also cancel saved path after packet drop
 
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,

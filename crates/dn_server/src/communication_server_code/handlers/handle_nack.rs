@@ -52,6 +52,8 @@ impl CommunicationServer {
                     .update_node_type(source_routing_header.hops[0], NodeType::Drone);
             }
             NackType::Dropped => {
+                self.network_topology.update_estimated_pdr(source_routing_header.hops[0], true);
+                self.network_topology.remove_path(&source_routing_header.hops[0]);
                 self.recover_fragment(session_id, nack.fragment_index);
             }
             NackType::UnexpectedRecipient(_) => {
@@ -196,6 +198,8 @@ mod tests {
             .try_recv()
             .expect("No recover packet received on channel 3");
         assert_eq!(received_packet.session_id, session_id);
+
+        assert_eq!(test_server_helper.server.network_topology.get_node_cost(&3).unwrap(), 40);
 
         // UNEXPECTED RECIPIENT
         // nothing to do

@@ -35,7 +35,7 @@ impl PendingMessagesQueue {
     pub fn add_message(&mut self, node_id: NodeId, message: Message) {
         self.pending_messages
             .entry(node_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(message);
     }
 
