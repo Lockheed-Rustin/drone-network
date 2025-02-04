@@ -121,7 +121,12 @@ impl ClientRouting {
         self.topology.clear();
         self.topology.add_node(self.client_id);
 
+        for (_, server_info) in self.servers_info.iter_mut() {
+            server_info.reachable = false;
+        }
+
     }
+
     pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId)  {
         self.topology.remove_edge(self.client_id, neighbor);
 
