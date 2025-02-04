@@ -23,13 +23,15 @@ impl CommunicationServer {
     /// * `f` - The fragment of the message to process.
     /// * `sender_id` - The ID of the sender of the fragment.
     /// * `session_id` - The session ID associated with the message.
+    /// * `arrived_packet_path` - The path of the incoming packet
     pub(crate) fn handle_fragment(
         &mut self,
         f: Fragment,
         sender_id: NodeId,
         session_id: SessionId,
+        arrived_packet_path: Vec<NodeId>,
     ) {
-        self.send_ack(f.clone(), sender_id, session_id);
+        self.send_ack(f.clone(), sender_id, session_id, arrived_packet_path);
         if let Some(message) = self.assembler.handle_fragment(f, sender_id, session_id) {
             self.handle_message(message, sender_id);
         }
@@ -82,28 +84,41 @@ impl CommunicationServer {
     /// * `fragment` - The fragment for which to send an acknowledgment.
     /// * `to` - The recipient node ID.
     /// * `session_id` - The session ID associated with the message.
+    /// * `arrived_packet_path` - The path of the incoming packet
     ///
     /// # Panics
-    /// * This function may panic if `hops` is unexpectedly empty.
-    pub(crate) fn send_ack(&mut self, fragment: Fragment, to: NodeId, session_id: SessionId) {
+    /// * This function may panic if the node `to` is not a Client, because the server should ignore
+    ///   messages that are not from clients
+    pub(crate) fn send_ack(
+        &mut self,
+        fragment: Fragment,
+        to: NodeId,
+        session_id: SessionId,
+        arrived_packet_path: Vec<NodeId>,
+    ) {
         let ack = PacketType::Ack(Ack {
             fragment_index: fragment.fragment_index,
         });
-        let hops = self
+        let mut hops = self
             .network_topology
             .source_routing(self.id, to)
             .expect("Error in routing");
 
-        if !hops.is_empty() {
-            let packet = Packet {
-                pack_type: ack,
-                routing_header: SourceRoutingHeader { hop_index: 1, hops },
-                session_id,
-            };
-            self.send_packet(packet);
-        } else {
-            panic!("error in routing");
+        if hops.is_empty() {
+            // I don't know the path to `to` yet, so I'm going to use the reversed path of the fragment
+            hops = arrived_packet_path
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>();
         }
+
+        let packet = Packet {
+            pack_type: ack,
+            routing_header: SourceRoutingHeader { hop_index: 1, hops },
+            session_id,
+        };
+        self.send_packet(packet);
     }
 
     /// Sends message fragments along a predefined route.
@@ -146,6 +161,9 @@ impl CommunicationServer {
     /// Sends a message to the specified recipient using source routing.
     ///
     /// The message is serialized and split into fragments before being sent.
+    /// If it is impossible to send the message to the client because the path is currently unknown,
+    /// the message is added to the `pending_message_queue` and will be sent when the topology is
+    /// updated.
     ///
     /// # Panics
     /// - If routing to the recipient is not possible, the function will panic.
@@ -169,7 +187,9 @@ impl CommunicationServer {
                 self.send_fragments(session_id, serialized_message, routing_header);
             }
         } else {
-            panic!("error in routing");
+            // I don't know the path to `to` yet
+            self.pending_messages_queue.add_message(to, message);
+            self.update_network_topology();
         }
     }
 
@@ -201,6 +221,7 @@ impl CommunicationServer {
 mod tests {
     use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use dn_message::ServerBody;
 
     #[test]
     fn test_send_ack() {
@@ -209,7 +230,9 @@ mod tests {
         let to = 6;
         let session_id = 111;
         let fragment: Fragment = TestServerHelper::test_fragment(13, 50);
-        test_server_helper.server.send_ack(fragment, to, session_id);
+        test_server_helper
+            .server
+            .send_ack(fragment.clone(), to, session_id, vec![6, 3, 1]);
 
         let ack = test_server_helper
             .packet_recv_3
@@ -221,6 +244,56 @@ mod tests {
                 assert_eq!(c.fragment_index, 13)
             }
             _ => panic!("Expected Ack"),
+        }
+
+        test_server_helper.server.network_topology.remove_node(6);
+        // the dest is not in the topology but `send_nack` can use the reversed path in these cases
+        test_server_helper
+            .server
+            .send_ack(fragment, to, session_id, vec![6, 3, 1]);
+        let ack = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("Expected recv packet");
+        assert_eq!(ack.session_id, session_id);
+        match ack.pack_type {
+            PacketType::Ack(c) => {
+                assert_eq!(c.fragment_index, 13)
+            }
+            _ => panic!("Expected Ack"),
+        }
+    }
+
+    #[test]
+    fn test_pending_message_added() {
+        let mut test_server_helper = TestServerHelper::new();
+        test_server_helper.server.network_topology.remove_node(6);
+        let message = Message::Server(ServerBody::ErrUnsupportedRequestType);
+        test_server_helper.server.send_message(message, 6);
+        assert_eq!(
+            test_server_helper
+                .server
+                .pending_messages_queue
+                .has_pending_messages(&6),
+            true
+        );
+        match test_server_helper
+            .server
+            .pending_messages_queue
+            .take_pending_messages(&6)
+        {
+            Some(mut v) => {
+                assert_eq!(v.len(), 1);
+                let m = v.pop().unwrap();
+                if let Message::Server(ServerBody::ErrUnsupportedRequestType) = m {
+                    assert!(true)
+                } else {
+                    assert!(false)
+                }
+            }
+            None => {
+                assert!(false);
+            }
         }
     }
 }

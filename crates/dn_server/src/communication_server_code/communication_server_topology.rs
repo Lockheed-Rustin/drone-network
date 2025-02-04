@@ -1,3 +1,4 @@
+//! # CommunicationServer's Network Topology
 //! This module manages the network topology for the communication server.
 //! It provides methods for adding/removing nodes and edges, retrieving and updating node types,
 //! and implementing source routing.
@@ -17,7 +18,7 @@ type Topology = UnGraphMap<NodeId, ()>;
 pub struct CommunicationServerNetworkTopology {
     graph: Topology,
     node_types: HashMap<NodeId, NodeType>,
-    saved_paths: HashMap<NodeId, Vec<NodeId>>, // target_node_id -> path
+    saved_paths: HashMap<NodeId, Vec<NodeId>>, // client_node_id -> path
 }
 
 impl CommunicationServerNetworkTopology {
@@ -45,9 +46,7 @@ impl CommunicationServerNetworkTopology {
         if !self.graph.contains_node(node_id) {
             self.graph.add_node(node_id);
         }
-        self.node_types
-            .entry(node_id)
-            .or_insert(node_type);
+        self.node_types.entry(node_id).or_insert(node_type);
     }
 
     /// Adds an edge between two nodes in the network topology.
@@ -71,6 +70,7 @@ impl CommunicationServerNetworkTopology {
     /// * `node_id` - The ID of the node to remove.
     pub fn remove_node(&mut self, node_id: NodeId) {
         self.graph.remove_node(node_id);
+        self.node_types.remove(&node_id);
     }
 
     /// Removes an edge between two nodes in the network topology.
@@ -106,6 +106,18 @@ impl CommunicationServerNetworkTopology {
         self.node_types.insert(node_id, node_type);
     }
 
+    /// Saves a routing path for a given node.
+    ///
+    /// This function stores a path associated with a specific node ID in the `saved_paths` map.
+    /// The saved path can later be used for routing or network optimization.
+    ///
+    /// # Arguments
+    /// * `node_id` - The unique identifier of the node for which the path is being saved.
+    /// * `path` - A vector of `NodeId` representing the sequence of nodes in the saved path.
+    pub fn save_path(&mut self, node_id: NodeId, path: Vec<NodeId>) {
+        self.saved_paths.insert(node_id, path);
+    }
+
     /// Attempts to find a route from one node to another using source routing.
     ///
     /// If the destination node is a client, the function first checks if a saved path exists.
@@ -118,17 +130,23 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Returns
     /// * `Option<Vec<NodeId>>` - The list of nodes representing the route from `from` to `to`,
-    ///    or `None` if no route is found.
+    ///    or `None` if destination_type was not Client. It returns an empty vec if the node `to`
+    ///    is not known yet.
     pub fn source_routing(&mut self, from: NodeId, to: NodeId) -> Option<Vec<NodeId>> {
         let destination_type = self.get_node_type(&to);
-        if let Some(NodeType::Client) = destination_type {
-            if self.saved_paths.contains_key(&to) {
-                self.saved_paths.get(&to).cloned()
-            } else {
-                Some(self.bfs(from, to))
+        if let Some(nt) = destination_type {
+            match nt {
+                NodeType::Client => {
+                    if self.saved_paths.contains_key(&to) {
+                        self.saved_paths.get(&to).cloned()
+                    } else {
+                        Some(self.bfs(from, to))
+                    }
+                }
+                _ => None,
             }
         } else {
-            None
+            Some(vec![])
         }
     }
 
@@ -164,7 +182,7 @@ impl CommunicationServerNetworkTopology {
                 }
                 route.push(from);
                 route.reverse();
-                self.saved_paths.insert(to, route.clone());
+                self.save_path(to, route.clone());
                 return route;
             }
 
@@ -211,8 +229,8 @@ impl Default for CommunicationServerNetworkTopology {
 
 #[cfg(test)]
 mod tests {
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
     use super::*;
+    use crate::communication_server_code::test_server_helper::TestServerHelper;
 
     #[test]
     fn test_source_routing() {
@@ -220,6 +238,10 @@ mod tests {
         let mut server = helper.server;
 
         let route = server.network_topology.source_routing(server.id, 1);
+
+        assert_eq!(route, None);
+
+        let route = server.network_topology.source_routing(server.id, 3);
 
         assert_eq!(route, None);
 
@@ -281,5 +303,46 @@ mod tests {
             .source_routing(server.id, 70)
             .expect("Error in routing");
         assert!(route.is_empty());
+
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
+
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 3);
+        assert_eq!(route[2], 7);
+        assert_eq!(route[3], 4);
+
+        server.network_topology.update_node_type(5, NodeType::Drone);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 4)
+            .expect("Error in routing");
+
+        // even if the path through 5 is shorter, it will use the one through 7 because is saved
+        assert!(!route.is_empty());
+        assert_eq!(route[0], 1);
+        assert_eq!(route[1], 3);
+        assert_eq!(route[2], 7);
+        assert_eq!(route[3], 4);
     }
+
+    #[test]
+    fn test_source_routing_empty_vec_cases() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+
+        server.network_topology.remove_node(6);
+        let route = server
+            .network_topology
+            .source_routing(server.id, 6)
+            .expect("Error in routing");
+        assert_eq!(route, vec![]);
+    }
+
 }

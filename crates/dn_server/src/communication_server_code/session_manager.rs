@@ -1,3 +1,4 @@
+//! # Session Manager
 //! The `SessionManager` module is responsible for managing and tracking sessions and their fragments.
 //! It allows the creation of new sessions, adding fragments to those sessions, and managing
 //! acknowledgments for the fragments that have been sent or received. The module tracks all pending

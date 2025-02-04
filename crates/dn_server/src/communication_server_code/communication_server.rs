@@ -6,15 +6,12 @@ use dn_message::assembler::Assembler;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
-
+use crate::communication_server_code::pending_message_queue::PendingMessagesQueue;
 // TODO: nack tests to be checked
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
-// TODO: do something when check_routing returns false?
 // TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol
-// TODO: cosa succede se sto gestendo una richiesta e non sono ancora arrivati i primi flood response/non conosco per qualche motivo il dest? ->
-// TODO: (contd) -> hops vuoto -> panic o no (magari mando a qualcuno a caso in modo che mi torni indietro il nack)?
-// TODO: (contd) potrei, quando mi arriva un messaggio salvarmi il path al contrario per evitare alcuni casi di errore simili
+
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,
     pub(crate) controller_recv: Receiver<ServerCommand>,
@@ -25,6 +22,7 @@ pub struct CommunicationServer {
     pub(crate) id: NodeId,
     pub(crate) flood_id_counter: u64,
     pub(crate) session_manager: SessionManager,
+    pub(crate) pending_messages_queue: PendingMessagesQueue,
     pub(crate) assembler: Assembler,
     pub(crate) network_topology: CommunicationServerNetworkTopology,
     pub(crate) registered_clients: HashSet<NodeId>,
@@ -47,6 +45,7 @@ impl CommunicationServer {
             running: false,
             flood_id_counter: 0,
             session_manager: SessionManager::new(),
+            pending_messages_queue: PendingMessagesQueue::new(),
             registered_clients: HashSet::new(),
             network_topology: CommunicationServerNetworkTopology::new(),
             assembler: Assembler::new(),

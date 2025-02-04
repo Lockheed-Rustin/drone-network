@@ -70,6 +70,9 @@ impl CommunicationServer {
     /// their connecting edge are already present in the topology. If not, they are added.
     /// It also saves the type of each node in `topology_nodes_type`.
     ///
+    /// If any newly discovered nodes have pending messages waiting to be sent, this function
+    /// attempts to send them.
+    ///
     /// # Arguments
     /// * `response` - The flood response to process.
     pub(crate) fn handle_flood_response(&mut self, response: FloodResponse) {
@@ -81,6 +84,18 @@ impl CommunicationServer {
             let (node_a, _) = window[0];
             let (node_b, _) = window[1];
             self.network_topology.add_edge(node_a, node_b);
+        }
+
+        // Check for pending messages that can now be sent
+        for &(node_id, _) in &response.path_trace {
+            if self.pending_messages_queue.has_pending_messages(&node_id) {
+                if let Some(messages) = self.pending_messages_queue.take_pending_messages(&node_id)
+                {
+                    for message in messages {
+                        self.send_message(message, node_id);
+                    }
+                }
+            }
         }
     }
 
@@ -129,6 +144,8 @@ mod tests {
     use crate::communication_server_code::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
     use std::collections::HashMap;
+    use dn_message::Message;
+    use dn_message::ServerBody::ErrUnsupportedRequestType;
 
     #[test]
     fn test_send_flood_response() {
@@ -225,5 +242,39 @@ mod tests {
             server.network_topology.get_node_type(&26),
             Some(&NodeType::Client)
         );
+    }
+
+    #[test]
+    fn test_handle_flood_response_pending_messages_recovery() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+        server.network_topology.remove_node(6);
+        server.send_message(Message::Server(ErrUnsupportedRequestType), 6);
+        assert!(server.pending_messages_queue.has_pending_messages(&6));
+        server.handle_flood_response(FloodResponse {
+            flood_id: 1,
+            path_trace: vec![
+                (1, NodeType::Server),
+                (3, NodeType::Drone),
+                (6, NodeType::Client),
+            ],
+        });
+        assert!(!server.pending_messages_queue.has_pending_messages(&6));
+        let flood_req = helper.packet_recv_3.recv().unwrap();
+        match flood_req.pack_type {
+            PacketType::FloodRequest(_) => {
+                assert!(true);
+            }
+            _ => {
+                assert!(false);
+            }
+        }
+        let packet = helper.packet_recv_3.recv().unwrap();
+        if let PacketType::MsgFragment(_) = packet.pack_type {
+            assert_eq!(packet.routing_header.hops, vec![1, 3, 6]);
+        } else {
+            assert!(false);
+        }
+
     }
 }
