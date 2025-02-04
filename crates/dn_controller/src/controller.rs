@@ -214,7 +214,7 @@ impl SimulationController {
 
     pub fn shortcut(&self, p: Packet) -> Option<()> {
         let dest_id = p.routing_header.hops.last()?;
-        let sender = &self.nodes.get(&dest_id)?.packet_send;
+        let sender = &self.nodes.get(dest_id)?.packet_send;
         sender.send(p).ok()
     }
 
