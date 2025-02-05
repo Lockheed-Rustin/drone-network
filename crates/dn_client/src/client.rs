@@ -3,7 +3,7 @@ use dn_controller::{ClientCommand, ClientEvent};
 use dn_message::{Assembler, ClientBody, Message};
 use std::collections::HashMap;
 use wg_2024::network::SourceRoutingHeader;
-use wg_2024::packet::{FloodRequest, FloodResponse, Fragment, NodeType, PacketType};
+use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
 use wg_2024::{network::NodeId, packet::Packet};
 use crate::ClientRouting;
 
@@ -56,8 +56,10 @@ impl Client {
             select! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
-                        self.handle_command(cmd);
-                        self.session_id += 1;
+                        match cmd {
+                            ClientCommand::Return => {return;},
+                             _ => self.handle_command(cmd),
+                        }
                     }
                 },
                 recv(self.packet_recv) -> packet => {
@@ -77,7 +79,7 @@ impl Client {
             ClientCommand::SendFloodRequest => self.send_flood_request(),
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
             ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
-            _ => {}
+            _ => {},
         }
     }
 
@@ -87,9 +89,9 @@ impl Client {
             .send(ClientEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
 
-        match packet.pack_type {
+        match &packet.pack_type {
             PacketType::MsgFragment(fragment) => {
-                self.handle_fragment(fragment, packet.routing_header.source().unwrap(), packet.session_id);
+                self.handle_fragment(fragment, &packet.routing_header, packet.session_id);
             }
 
             PacketType::Ack(ack) => {
@@ -127,15 +129,22 @@ impl Client {
         self.packet_send.insert(n, sender);
 
         if let Some(servers_became_reachable) = self.source_routing.add_channel_to_neighbor(n) {
-            for (server, path) in servers_became_reachable {
-                if let Some(unsendeds) = self.unsendable_fragments.remove(&server) {
-                    let header = SourceRoutingHeader::with_first_hop(path);
+            self.send_unsended(servers_became_reachable);
+        }
+    }
 
+
+    //---------- send ----------//
+    fn send_unsended(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
+        for (server, path) in servers {
+            if let Some(unsendeds) = self.unsendable_fragments.remove(&server) {
+                let header = SourceRoutingHeader::with_first_hop(path);
+                if let Some(next_hop) = header.next_hop() {
                     for (session, fragment) in unsendeds {
-                        let packet= Packet::new_fragment(header.clone(), session, fragment);
+                        let packet = Packet::new_fragment(header.clone(), session, fragment);
 
                         self.packet_send
-                            .get(&6)
+                            .get(&next_hop)
                             .unwrap()
                             .send(packet.clone())
                             .expect("Error in send");
@@ -149,11 +158,15 @@ impl Client {
         }
     }
 
-
-    //---------- send ----------//
     fn send_message(&mut self, client_body: ClientBody, dest: NodeId) {
-        let fragments = self.assembler.serialize_message(&Message::Client(client_body));
+        //fragment message and notify controller
+        let fragments = self.assembler.serialize_message(&Message::Client(client_body.clone()));
 
+        self.controller_send
+            .send(ClientEvent::MessageFragmented(client_body))
+            .expect("Error in controller_send");
+
+        //add fragments to pending session
         let pending_fragment = self.pending_sessions.entry((dest, self.session_id)).or_default();
         for fragment in fragments.iter() {
                 pending_fragment.insert(fragment.fragment_index, fragment.clone());
@@ -164,16 +177,7 @@ impl Client {
 
             for fragment in fragments {
                 let packet= Packet::new_fragment(header.clone(), self.session_id, fragment);
-
-                self.packet_send
-                    .get(&6)
-                    .unwrap()
-                    .send(packet.clone())
-                    .expect("Error in send");
-
-                self.controller_send
-                    .send(ClientEvent::PacketSent(packet))
-                    .expect("Error in controller_send");
+                self.send_packet(packet);
             }
         }
         else {
@@ -199,8 +203,9 @@ impl Client {
             },
             session_id: self.session_id,
         };
+        self.session_id += 1;
 
-        self.source_routing.reset_topology();
+        self.source_routing.clear_topology();
 
         for (_, sender) in self.packet_send.iter() {
             sender
@@ -213,47 +218,106 @@ impl Client {
             .expect("Error in controller_send");
     }
 
+    fn send_packet(&self, packet: Packet) {
+        if let Some(next_hop) = packet.routing_header.next_hop() {
+            self.packet_send
+                .get(&next_hop)
+                .unwrap()
+                .send(packet.clone())
+                .expect("Error in send");
 
-
-
-    //---------- handle for PacketTypes ----------//
-
-    fn handle_fragment(&mut self, fragment: Fragment, sender_id: NodeId, session_id: u64) {
-        if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(&fragment, sender_id, session_id) {
             self.controller_send
-                .send(ClientEvent::MessageAssembled(server_body))
+                .send(ClientEvent::PacketSent(packet))
                 .expect("Error in controller_send");
         }
-
-        //TODO: complete
-        unimplemented!()
-    }
-    fn handle_flood_response(&mut self, mut flood_response: FloodResponse) {
-        unimplemented!()
     }
 
+    fn send_unexp_recip(&self, header: &SourceRoutingHeader, session_id: u64, fragment_index: u64) {
+        let path = header
+            .hops
+            .iter()
+            .cloned()
+            .take(header.hop_index + 1)
+            .rev()
+            .collect::<Vec<_>>();
+
+        let nack = Packet::new_nack(
+            SourceRoutingHeader::with_first_hop(path),
+            session_id,
+            Nack{
+                fragment_index,
+                nack_type: NackType::UnexpectedRecipient(self.id),
+            }
+        );
+
+        self.send_packet(nack);
+    }
 
 
-    //---------- send Packets ----------//
-    fn send_nack(&self) {
+
+
+    //---------- handle ----------//
+
+    fn handle_fragment(&mut self, fragment: &Fragment, header: &SourceRoutingHeader, session_id: u64) {
+        if header.hops.len() < 2 {return;}
+
+        if let Some(&sender) = header.hops.first() {
+            self.source_routing.correct_exchanged_with(sender, &header.hops);
+        }
+
+        match header.hops.get(header.hop_index) {
+            Some(&curr_hop) if curr_hop == self.id => match header.hops.last() { //if packet it's for me
+                Some(&last_hop) if last_hop == self.id => { //if I'm the last hop
+                    let sender = header.hops.first().expect("Unreachable"); // always have first since path.len() >= 2
+
+                    if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, *sender, session_id) {
+                        self.controller_send
+                            .send(ClientEvent::MessageAssembled(server_body))
+                            .expect("Error in controller_send");
+                    }
+
+                    //TODO: invio ack di risposta? -> path mio o reverso quello del paccheto? (Penso la seconda)
+                    let ack = Packet::new_ack(
+                        SourceRoutingHeader::with_first_hop(
+                            header.hops.iter().cloned().rev().collect::<Vec<_>>()
+                        ),
+                        session_id,
+                        fragment.fragment_index,
+                    );
+
+                    self.send_packet(ack);
+                }
+                _ => { //if I received a packet as traveler
+                    self.send_unexp_recip(header, session_id, fragment.fragment_index); //?????
+                }
+            }
+            _ => { //If I received a wrong packet
+                self.send_unexp_recip(header, session_id, fragment.fragment_index);
+            }
+        }
+
+
+    }
+
+    fn handle_flood_response(&mut self, flood_response: &FloodResponse) {
+        if let Some(servers_became_reachable) = self.source_routing.add_path(&flood_response.path_trace) {
+            self.send_unsended(servers_became_reachable);
+        }
+    }
+
+    fn handle_ack(&self, ack: &Ack, header: SourceRoutingHeader, session_id: u64) {
+        unimplemented!()
+    }
+
+    fn handle_nack(&self, nack: &Nack, header: SourceRoutingHeader, session_id: u64) {
         unimplemented!()
     }
 
 
-    fn handle_flood_request(&self, session_id: u64, mut flood_request: FloodRequest) {
+    fn handle_flood_request(&self, session_id: u64, mut flood_request: &FloodRequest) {
         flood_request.increment(self.id, NodeType::Server);
         let flood_response = flood_request.generate_response(session_id);
 
-        //send flood response
-        self.packet_send[&flood_response.routing_header.hops[1]]
-            .send(flood_response.clone())
-            .expect("Error in send");
-
-        //notify controller about sending packet
-        self.controller_send
-            .send(ClientEvent::PacketSent(flood_response))
-            .expect("Error in controller_send");
-
-
+        self.send_packet(flood_response);
     }
 }

@@ -80,34 +80,19 @@ impl Default for ServerInfo {
     }
 }
 
-impl ServerInfo {
-    pub fn inc_packet_exchanged(&mut self) {
-        self.packet_exchanged += 1;
-    }
-}
-
 
 
 //---------- STRUCT DRONE INFO ----------//
 #[derive(Default)]
 pub struct DroneInfo {
-    packet_received: u64,
+    packet_traveled: u64,
     packet_dropped: u64,
 }
 
 impl DroneInfo {
     pub fn get_pdr(&self) -> f64 {
-        if self.packet_received == 0 {0.0}
-        else {(self.packet_dropped as f64)/(self.packet_received as f64)}
-    }
-
-    pub fn inc_corret_send(&mut self) {
-        self.packet_received += 1;
-    }
-
-    pub fn inc_dropped(&mut self) {
-        self.packet_received += 1;
-        self.packet_dropped += 1;
+        if self.packet_traveled == 0 {0.0}
+        else {(self.packet_dropped as f64)/(self.packet_traveled as f64)}
     }
 }
 
@@ -141,7 +126,7 @@ impl ClientRouting {
 
 
     //---------- topology modifier ----------//
-    pub fn reset_topology(&mut self) {
+    pub fn clear_topology(&mut self) {
         self.topology.clear();
         self.topology.add_node(self.client_id);
 
@@ -186,7 +171,7 @@ impl ClientRouting {
         }
     }
 
-    pub fn add_path(&mut self, path: FloodPath) -> Option<Vec<(NodeId, Path)>>  {
+    pub fn add_path(&mut self, path: &FloodPath) -> Option<Vec<(NodeId, Path)>>  {
         //check if path is empty and
         let mut iter = path.iter();
         let mut last = match iter.next() {
@@ -244,7 +229,7 @@ impl ClientRouting {
             return; //path empty
         };
 
-        let mut last = match iter.next() {
+        let mut last = match iter.next() { //last = first drone after client
             Some(&node) => node,
             None => return, //Case path = [client]
         };
@@ -256,6 +241,39 @@ impl ClientRouting {
             last = node;
         }
     }
+
+
+    //---------- update info on packet exchanged ----------//
+    pub fn correct_send_to(&mut self, server: NodeId) {
+        if let Some(server_info) = self.servers_info.get(&server) {
+            self.correct_exchanged_with(server, &server_info.path.clone());
+        }
+    }
+
+    pub fn correct_exchanged_with(&mut self, server: NodeId, path: &Path) {
+        for drone in path.iter() {
+            if let Some(drone_info) = self.drones_info.get_mut(drone) {
+                drone_info.packet_traveled += 1;
+            }
+        }
+
+        if let Some(server_info) = self.servers_info.get_mut(&server) {
+            server_info.packet_exchanged += 1;
+        }
+    }
+
+    pub fn inc_packet_dropped(&mut self, path: &Path) {
+        for (i, drone) in path.iter().enumerate() {
+            if let Some(drone_info) = self.drones_info.get_mut(drone) {
+                drone_info.packet_traveled += 1;
+
+                if i == 0 {
+                    drone_info.packet_dropped += 1;
+                }
+            }
+        }
+    }
+
 
 
     //---------- compute source routing ----------//
