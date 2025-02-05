@@ -27,7 +27,7 @@ rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
 rustafarian-drone = { git = "https://github.com/Rustafarian-Unitn/rustafarian-drone"}
 fungi_drone = { git = "https://github.com/Fungi-B-D/Fungi-Drone.git" }
 rustable-drone = { git = "https://github.com/SmL-Boi/RustableDroneLib.git" }
-ledron_james = { git = "https://github.com/anass03/LeDron_James.git", package = "LeDron_James" }
+ledron_james = { git = "https://github.com/anass03/LeDron_James.git", package = "LeDron_James", features = []}
 ap2024_rustinpeace_nosounddrone = { git = "https://github.com/Rust-In-Peace-AP/No-Sound-Drone.git" }
 wg_2024-rust = { git = "https://github.com/LuigiMiazzo17/unitn-advancedProgramming-WGL_2024-drone.git" }
 dr_ones = { git = "https://github.com/Dr-Ones/drone" }
