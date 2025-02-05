@@ -43,7 +43,7 @@ struct InitOption<'a> {
     pool: rayon::ThreadPool,
 }
 
-pub fn init_network(config: &config::Config) -> Result<SimulationController, NetworkInitError> {
+pub fn init_network(config: &config::Config, magic_number: u32) -> Result<SimulationController, NetworkInitError> {
     let topology = init_topology(config)?;
 
     let (drone_send, drone_recv) = unbounded();
@@ -72,7 +72,7 @@ pub fn init_network(config: &config::Config) -> Result<SimulationController, Net
         nodes: HashMap::new(),
         pool,
     };
-    init_drones(&mut opt);
+    init_drones(&mut opt, magic_number);
     init_clients(&mut opt);
     init_servers(&mut opt);
 
@@ -94,7 +94,7 @@ fn get_packet_send(opt: &mut InitOption, node_ids: &[NodeId]) -> HashMap<NodeId,
         .collect()
 }
 
-fn init_drones(opt: &mut InitOption) {
+fn init_drones(opt: &mut InitOption, magic_number: u32) {
     for drone in opt.config.drone.iter() {
         // controller
         let (drone_send, controller_recv) = unbounded();
@@ -114,18 +114,166 @@ fn init_drones(opt: &mut InitOption) {
         let packet_send = get_packet_send(opt, &drone.connected_node_ids);
         let drone_id = drone.id;
         let drone_pdr = drone.pdr;
+        match magic_number {
+            // Lockheed
+            0 => {
+                opt.pool.spawn(move || {
+                    lockheedrustin_drone::LockheedRustin::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // Ledron
+            1 => {
+                opt.pool.spawn(move || {
+                    ledron_james::Drone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // rustastics
+            2 => {
+                opt.pool.spawn(move || {
+                    rustastic_drone::RustasticDrone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // bagel bomber
+            3 => {
+                opt.pool.spawn(move || {
+                    bagel_bomber::BagelBomber::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // rusty drones
+            4 => {
+                opt.pool.spawn(move || {
+                    rusty_drones::RustyDrone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // rustroveri
+            5 => {
+                opt.pool.spawn(move || {
+                    rust_roveri::RustRoveri::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // skylink
+            6 => {
+                opt.pool.spawn(move || {
+                    skylink::SkyLinkDrone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // rustbusters
+            7 => {
+                opt.pool.spawn(move || {
+                    rustbusters_drone::RustBustersDrone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // fungi
+            8 => {
+                opt.pool.spawn(move || {
+                    fungi_drone::FungiDrone::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // rust do it
+            9 => {
+                opt.pool.spawn(move || {
+                    rust_do_it::RustDoIt::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            // flypath
+            10 => {
+                opt.pool.spawn(move || {
+                    flypath::FlyPath::new(
+                        drone_id,
+                        controller_send,
+                        controller_recv,
+                        packet_recv,
+                        packet_send,
+                        drone_pdr,
+                    )
+                        .run();
+                });
+            }
+            _ => {
+                panic!("WRONG MAGIC NUMBER IDIOT!")
+            }
+        }
 
-        opt.pool.spawn(move || {
-            lockheedrustin_drone::LockheedRustin::new(
-                drone_id,
-                controller_send,
-                controller_recv,
-                packet_recv,
-                packet_send,
-                drone_pdr,
-            )
-            .run();
-        });
     }
 }
 
