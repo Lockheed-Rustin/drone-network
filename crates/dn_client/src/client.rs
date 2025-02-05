@@ -220,7 +220,7 @@ impl Client {
     }
 
     fn send_packet(&self, packet: Packet) {
-        if let Some(next_hop) = packet.routing_header.next_hop() {
+        if let Some(next_hop) = packet.routing_header.current_hop() {
             self.packet_send
                 .get(&next_hop)
                 .unwrap()
