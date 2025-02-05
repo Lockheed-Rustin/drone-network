@@ -9,10 +9,37 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use dn_message::ServerBody::RespServerType;
 use dn_message::ServerCommunicationBody::RespClientList;
-use dn_message::{CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
+use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
 use wg_2024::network::NodeId;
 
 impl CommunicationServer {
+
+    pub(crate) fn handler_client_body(&mut self, client_body: ClientBody, sender_id: NodeId) {
+        match client_body {
+            ClientBody::ReqServerType => {
+                self.send_server_type(sender_id);
+            }
+            ClientBody::ClientCommunication(comm_body) => {
+                self.handle_client_communication_body(comm_body, sender_id);
+            },
+            ClientBody::ClientContent(_) => {} // ignoring messages for the content server
+        }
+    }
+
+    fn handle_client_communication_body(&mut self, client_communication_body: ClientCommunicationBody, sender_id: NodeId) {
+        match client_communication_body {
+            ClientCommunicationBody::ReqRegistrationToChat => {
+                self.register_client(sender_id);
+            }
+            ClientCommunicationBody::MessageSend(comm_message) => {
+                self.forward_message(comm_message);
+            }
+            ClientCommunicationBody::ReqClientList => {
+                self.registered_clients_list(sender_id);
+            }
+        }
+    }
+
     /// Sends the type of the server to the specified client.
     ///
     /// This function informs the given client that the type of the server is `Communication`.
@@ -33,7 +60,7 @@ impl CommunicationServer {
     ///
     /// ### Arguments:
     /// - `client_id`: The unique identifier of the client to be registered.
-    pub(crate) fn register_client(&mut self, client_id: NodeId) {
+    fn register_client(&mut self, client_id: NodeId) {
         self.registered_clients.insert(client_id);
     }
 
@@ -45,7 +72,7 @@ impl CommunicationServer {
     ///
     /// ### Arguments:
     /// - `client_id`: The unique identifier of the client who has requested the list of registered clients.
-    pub(crate) fn registered_clients_list(&mut self, client_id: NodeId) {
+    fn registered_clients_list(&mut self, client_id: NodeId) {
         let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
         let message = Message::Server(ServerBody::ServerCommunication(RespClientList(client_list)));
         self.send_message(message, client_id);
@@ -61,7 +88,7 @@ impl CommunicationServer {
     /// ### Arguments:
     /// - `communication_message`: The message containing the details of the communication,
     ///   including the sender (`from`), the recipient (`to`), and the actual content of the message.
-    pub(crate) fn forward_message(&mut self, communication_message: CommunicationMessage) {
+    fn forward_message(&mut self, communication_message: CommunicationMessage) {
         let to = communication_message.to;
         if self.registered_clients.contains(&to) {
             let message: Message = Message::Server(ServerBody::ServerCommunication(

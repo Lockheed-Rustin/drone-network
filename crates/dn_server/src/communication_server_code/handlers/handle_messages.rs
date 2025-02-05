@@ -7,7 +7,7 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use crate::communication_server_code::session_manager::SessionId;
 use dn_controller::ServerEvent;
-use dn_message::{ClientBody, ClientCommunicationBody, Message};
+use dn_message::{Message};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
 
@@ -31,8 +31,8 @@ impl CommunicationServer {
         session_id: SessionId,
         arrived_packet_path: Vec<NodeId>,
     ) {
-        self.send_ack(f.clone(), sender_id, session_id, arrived_packet_path);
-        if let Some(message) = self.assembler.handle_fragment(f, sender_id, session_id) {
+        self.send_ack(f.fragment_index, sender_id, session_id, arrived_packet_path);
+        if let Some(message) = self.assembler.handle_fragment(&f, sender_id, session_id) {
             self.handle_message(message, sender_id);
         }
     }
@@ -48,30 +48,15 @@ impl CommunicationServer {
     /// * `message` - The message to handle.
     /// * `sender_id` - The ID of the sender of the message.
     fn handle_message(&mut self, message: Message, sender_id: NodeId) {
-        match message {
-            Message::Client(cb) => {
-                self.controller_send
-                    .send(ServerEvent::MessageAssembled(cb.clone()))
-                    .expect("Error in controller_send");
-                match cb {
-                    ClientBody::ReqServerType => {
-                        self.send_server_type(sender_id);
-                    }
-                    ClientBody::ClientCommunication(comm_body) => match comm_body {
-                        ClientCommunicationBody::ReqRegistrationToChat => {
-                            self.register_client(sender_id);
-                        }
-                        ClientCommunicationBody::MessageSend(comm_message) => {
-                            self.forward_message(comm_message);
-                        }
-                        ClientCommunicationBody::ReqClientList => {
-                            self.registered_clients_list(sender_id);
-                        }
-                    },
-                    ClientBody::ClientContent(_) => {} // ignoring messages for the content server
-                }
-            }
-            Message::Server(_) => {} // ignoring messages received by other servers
+        if let Message::Client(client_body) = message {
+            self.controller_send
+                .send(ServerEvent::MessageAssembled {
+                    body: client_body.clone(),
+                    from: sender_id,
+                    to: self.id,
+                })
+                .expect("Error in controller_send");
+            self.handler_client_body(client_body, sender_id);
         }
     }
 
@@ -91,14 +76,12 @@ impl CommunicationServer {
     ///   messages that are not from clients
     pub(crate) fn send_ack(
         &mut self,
-        fragment: Fragment,
+        fragment_index: u64,
         to: NodeId,
         session_id: SessionId,
         arrived_packet_path: Vec<NodeId>,
     ) {
-        let ack = PacketType::Ack(Ack {
-            fragment_index: fragment.fragment_index,
-        });
+        let ack = PacketType::Ack(Ack { fragment_index });
         let mut hops = self
             .network_topology
             .source_routing(self.id, to)
@@ -119,6 +102,45 @@ impl CommunicationServer {
             session_id,
         };
         self.send_packet(packet);
+    }
+
+    /// Sends a message to the specified recipient using source routing.
+    ///
+    /// The message is serialized and split into fragments before being sent.
+    /// If it is impossible to send the message to the client because the path is currently unknown,
+    /// the message is added to the `pending_message_queue` and will be sent when the topology is
+    /// updated.
+    ///
+    /// # Panics
+    /// - If routing to the recipient is not possible, the function will panic.
+    ///
+    /// # Arguments
+    /// * `message` - The message to send.
+    /// * `to` - The recipient node ID.
+    pub(crate) fn send_message(&mut self, message: Message, to: NodeId) {
+        let hops = self
+            .network_topology
+            .source_routing(self.id, to)
+            .expect("Error in routing");
+        if !hops.is_empty() {
+            if let Message::Server(sb) = message.clone() {
+                let serialized_message = self.assembler.serialize_message(&message);
+                self.controller_send
+                    .send(ServerEvent::MessageFragmented {
+                        body: sb,
+                        from: self.id,
+                        to,
+                    })
+                    .expect("Error in controller_send");
+                let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+                let session_id = self.session_manager.get_and_increment_session_id_counter();
+                self.send_fragments(session_id, serialized_message, routing_header);
+            }
+        } else {
+            // I don't know the path to `to` yet
+            self.pending_messages_queue.add_message(to, message);
+            self.update_network_topology();
+        }
     }
 
     /// Sends message fragments along a predefined route.
@@ -155,41 +177,6 @@ impl CommunicationServer {
                 session_id,
             };
             self.send_packet(packet);
-        }
-    }
-
-    /// Sends a message to the specified recipient using source routing.
-    ///
-    /// The message is serialized and split into fragments before being sent.
-    /// If it is impossible to send the message to the client because the path is currently unknown,
-    /// the message is added to the `pending_message_queue` and will be sent when the topology is
-    /// updated.
-    ///
-    /// # Panics
-    /// - If routing to the recipient is not possible, the function will panic.
-    ///
-    /// # Arguments
-    /// * `message` - The message to send.
-    /// * `to` - The recipient node ID.
-    pub(crate) fn send_message(&mut self, message: Message, to: NodeId) {
-        let hops = self
-            .network_topology
-            .source_routing(self.id, to)
-            .expect("Error in routing");
-        if !hops.is_empty() {
-            if let Message::Server(sb) = message.clone() {
-                let serialized_message = self.assembler.serialize_message(message);
-                self.controller_send
-                    .send(ServerEvent::MessageFragmented(sb))
-                    .expect("Error in controller_send");
-                let routing_header = SourceRoutingHeader { hop_index: 1, hops };
-                let session_id = self.session_manager.get_and_increment_session_id_counter();
-                self.send_fragments(session_id, serialized_message, routing_header);
-            }
-        } else {
-            // I don't know the path to `to` yet
-            self.pending_messages_queue.add_message(to, message);
-            self.update_network_topology();
         }
     }
 
@@ -232,7 +219,7 @@ mod tests {
         let fragment: Fragment = TestServerHelper::test_fragment(13, 50);
         test_server_helper
             .server
-            .send_ack(fragment.clone(), to, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, to, session_id, vec![6, 3, 1]);
 
         let ack = test_server_helper
             .packet_recv_3
@@ -250,7 +237,7 @@ mod tests {
         // the dest is not in the topology but `send_nack` can use the reversed path in these cases
         test_server_helper
             .server
-            .send_ack(fragment, to, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, to, session_id, vec![6, 3, 1]);
         let ack = test_server_helper
             .packet_recv_3
             .try_recv()

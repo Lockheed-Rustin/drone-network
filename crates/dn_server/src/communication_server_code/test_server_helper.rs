@@ -134,7 +134,7 @@ impl TestServerHelper {
         }
     }
 
-    pub fn serialize_message(&self, message: Message) -> Vec<Fragment> {
+    pub fn serialize_message(&self, message: &Message) -> Vec<Fragment> {
         self.assembler.serialize_message(message)
     }
 
@@ -156,7 +156,7 @@ impl TestServerHelper {
             if let Ok(packet) = response_packet {
                 if let PacketType::MsgFragment(fragment) = packet.pack_type {
                     reconstructed_response = self.assembler.handle_fragment(
-                        fragment,
+                        &fragment,
                         packet.routing_header.hops[0],
                         packet.session_id,
                     );
@@ -177,7 +177,7 @@ impl TestServerHelper {
         let message = Message::Client(ClientBody::ClientCommunication(
             ClientCommunicationBody::ReqRegistrationToChat,
         ));
-        let serialized_message = self.serialize_message(message);
+        let serialized_message = self.serialize_message(&message);
         let nr_of_fragments = serialized_message.len();
 
         self.send_fragments_to_server(serialized_message, vec![6, 3, 1]);
@@ -185,7 +185,7 @@ impl TestServerHelper {
     }
 
     pub fn send_message_and_get_response(&mut self, message: Message, hops: Vec<NodeId>, reconstruction_target_node: NodeId) -> Message {
-        let serialized_message = self.serialize_message(message);
+        let serialized_message = self.serialize_message(&message);
         self.send_fragments_to_server(serialized_message, hops);
         self.reconstruct_response_on_node_x(reconstruction_target_node)
     }
