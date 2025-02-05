@@ -148,8 +148,10 @@ impl SimulationController {
         self.add_sender(a, b)?;
         self.add_sender(b, a)?;
 
-        self.topology.add_edge(a, b, ())?;
-        Some(())
+        match self.topology.add_edge(a, b, ()) {
+            None => Some(()),
+            Some(_) => None,
+        }
     }
 
     fn remove_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
