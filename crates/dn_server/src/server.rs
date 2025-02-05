@@ -10,6 +10,7 @@ pub struct Server {
     pub controller_recv: Receiver<ServerCommand>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
+    finish: bool,
 }
 
 impl Server {
@@ -26,28 +27,38 @@ impl Server {
             controller_recv,
             packet_send,
             packet_recv,
+            finish: false,
         }
     }
 
     pub fn run(&mut self) {
-        select! {
+        loop {
+            select! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
                         self.handle_command(cmd);
+                    }
+                    if self.finish {
+                        return
                     }
                 },
                 recv(self.packet_recv) -> packet => {
                     if let Ok(pckt) = packet {
                         self.handle_packet(pckt);
                     }
+                    if self.finish {
+                        return
+                    }
                 }
             }
+        }
+
     }
 
     fn handle_command(&mut self, command: ServerCommand) {
         match command {
             ServerCommand::Return => {
-                std::process::exit(0);
+                self.finish = true;
             }
             _ => {}
         }

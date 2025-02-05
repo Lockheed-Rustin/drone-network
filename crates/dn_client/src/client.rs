@@ -12,6 +12,7 @@ pub struct Client {
     pub controller_recv: Receiver<ClientCommand>,
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
     pub packet_recv: Receiver<Packet>,
+    finish: bool,
 }
 
 impl Client {
@@ -28,6 +29,7 @@ impl Client {
             controller_recv,
             packet_send,
             packet_recv,
+            finish: false,
         }
     }
 
@@ -40,10 +42,16 @@ impl Client {
                         self.handle_command(cmd, session_id);
                         session_id += 1;
                     }
+                    if self.finish {
+                        return
+                    }
                 },
                 recv(self.packet_recv) -> packet => {
                     if let Ok(pckt) = packet {
                         self.handle_packet(pckt);
+                    }
+                    if self.finish {
+                        return
                     }
                 }
             }
@@ -59,7 +67,7 @@ impl Client {
             ClientCommand::SendAck => self.send_ack(session_id),
             ClientCommand::SendMessage(_, _) => {}
             ClientCommand::Return => {
-                std::process::exit(0);
+                self.finish = true;
             }
         }
     }
