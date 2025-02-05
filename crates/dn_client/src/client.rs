@@ -165,7 +165,11 @@ impl Client {
         let fragments = self.assembler.serialize_message(&Message::Client(client_body.clone()));
 
         self.controller_send
-            .send(ClientEvent::MessageFragmented(client_body))
+            .send(ClientEvent::MessageFragmented{
+                body: client_body,
+                from: self.id,
+                to: dest,
+            })
             .expect("Error in controller_send");
 
         //add fragments to pending session
@@ -269,11 +273,15 @@ impl Client {
 
         match header.hops.get(header.hop_index) {
             Some(&curr_hop) if curr_hop == self.id => { //if packet it's for me
-                let sender = header.hops.first().expect("Unreachable"); // always have first since path.len() >= 2
+                let &sender = header.hops.first().expect("Unreachable"); // always have first since path.len() >= 2
 
-                if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, *sender, session_id) {
+                if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
                     self.controller_send
-                        .send(ClientEvent::MessageAssembled(server_body))
+                        .send(ClientEvent::MessageAssembled{
+                            body: server_body,
+                            from: sender,
+                            to: self.id,
+                        })
                         .expect("Error in controller_send");
                 }
 
@@ -311,7 +319,7 @@ impl Client {
 
         if let Some(pending_fragment) = self.pending_sessions.get_mut(&(server, session_id)) {
             pending_fragment.remove(&ack.fragment_index);
-            if pending_fragment.len() == 0 {
+            if pending_fragment.is_empty() {
                 self.pending_sessions.remove(&(server, session_id));
             }
         }
