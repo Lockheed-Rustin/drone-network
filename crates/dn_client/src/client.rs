@@ -141,7 +141,7 @@ impl Client {
         for (server, path) in servers {
             if let Some(unsendeds) = self.unsendable_fragments.remove(&server) {
                 let header = SourceRoutingHeader::with_first_hop(path);
-                if let Some(next_hop) = header.next_hop() {
+                if let Some(next_hop) = header.current_hop() {
                     for (session, fragment) in unsendeds {
                         let packet = Packet::new_fragment(header.clone(), session, fragment);
 
@@ -199,16 +199,11 @@ impl Client {
     }
 
     fn send_flood_request(&mut self) {
-        let flood_request_packet = Packet {
-            pack_type: PacketType::FloodRequest(
-                FloodRequest::initialize(self.session_id, self.id, NodeType::Client)
-            ),
-            routing_header: SourceRoutingHeader {
-                hop_index: 0,
-                hops: vec![],
-            },
-            session_id: self.session_id,
-        };
+        let flood_request_packet = Packet::new_flood_request(
+            SourceRoutingHeader::empty_route(),
+            self.session_id,
+            FloodRequest::initialize(self.session_id, self.id, NodeType::Client)
+        );
         self.session_id += 1;
 
         self.source_routing.clear_topology();
@@ -331,8 +326,9 @@ impl Client {
 
 
     fn handle_flood_request(&self, session_id: u64, mut flood_request: FloodRequest) {
-        flood_request.increment(self.id, NodeType::Server);
-        let flood_response = flood_request.generate_response(session_id);
+        flood_request.increment(self.id, NodeType::Client);
+        let mut flood_response = flood_request.generate_response(session_id);
+        flood_response.routing_header.hop_index += 1;
 
         self.send_packet(flood_response);
     }
