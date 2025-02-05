@@ -232,6 +232,12 @@ impl SimulationController {
         Some(())
     }
 
+    pub fn send_ack_fair(&self, id: NodeId) -> Option<()> {
+        let sender = self.get_client_sender(id)?;
+        sender.send(ClientCommand::SendAck).ok()?;
+        Some(())
+    }
+
     pub fn get_topology(&self) -> &Topology {
         &self.topology
     }
