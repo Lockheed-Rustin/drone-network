@@ -1,4 +1,4 @@
-use crossbeam_channel::{select, Receiver, Sender};
+use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
 use dn_message::{Assembler, ClientBody, Message};
 use std::collections::HashMap;
@@ -52,8 +52,14 @@ impl Client {
     }
 
     pub fn run(&mut self) {
+        for neighbor in self.packet_send.keys() {
+            self.source_routing.add_channel_to_neighbor(*neighbor);
+        }
+
+        //self.send_flood_request();
+
         loop {
-            select! {
+            select_biased! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(cmd) = command {
                         match cmd {
@@ -115,7 +121,6 @@ impl Client {
             }
         }
     }
-
 
     //---------- add/rmv sender from client ----------//
     fn remove_sender(&mut self, n: NodeId) {
@@ -220,7 +225,7 @@ impl Client {
     }
 
     fn send_packet(&self, packet: Packet) {
-        if let Some(next_hop) = packet.routing_header.next_hop() {
+        if let Some(next_hop) = packet.routing_header.current_hop() {
             self.packet_send
                 .get(&next_hop)
                 .unwrap()
@@ -263,7 +268,7 @@ impl Client {
         if header.hops.len() < 2 {return;}
 
         if let Some(&sender) = header.hops.first() {
-            self.source_routing.correct_exchanged_with(sender, &header.hops);
+            self.source_routing.correct_received_from(sender, &header.hops);
         }
 
         match header.hops.get(header.hop_index) {
