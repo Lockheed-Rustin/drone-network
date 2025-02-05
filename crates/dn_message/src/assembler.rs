@@ -1,4 +1,5 @@
 use crate::Message;
+use bincode::config;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
@@ -20,7 +21,7 @@ impl Assembler {
 
     pub fn handle_fragment(
         &mut self,
-        fragment: Fragment,
+        fragment: &Fragment,
         sender_id: NodeId,
         session_id: u64,
     ) -> Option<Message> {
@@ -40,8 +41,8 @@ impl Assembler {
         }
     }
 
-    pub fn serialize_message(&self, message: Message) -> Vec<Fragment> {
-        let message_data = self.serialize_message_data(&message);
+    pub fn serialize_message(&self, message: &Message) -> Vec<Fragment> {
+        let message_data = self.serialize_message_data(message);
         let total_fragments = message_data.len().div_ceil(MAX_FRAGMENT_SIZE) as u64;
 
         let mut fragments = Vec::new();
@@ -62,8 +63,8 @@ impl Assembler {
         fragments
     }
 
-    fn serialize_message_data(&self, _message: &Message) -> Vec<u8> {
-        unimplemented!("serialize_message_data");
+    fn serialize_message_data(&self, message: &Message) -> Vec<u8> {
+        bincode::encode_to_vec(message, config::standard()).unwrap()
     }
 }
 
@@ -85,7 +86,7 @@ impl MessageBuffer {
         }
     }
 
-    pub fn add_fragment(&mut self, fragment: Fragment) {
+    pub fn add_fragment(&mut self, fragment: &Fragment) {
         let start_index = MAX_FRAGMENT_SIZE * fragment.fragment_index as usize;
         let end_index = start_index + fragment.length as usize;
 
@@ -104,7 +105,8 @@ impl MessageBuffer {
     }
 
     pub fn to_message(&self) -> Message {
-        // TODO
-        unimplemented!()
+        bincode::decode_from_slice(&self.fragments, config::standard())
+            .unwrap()
+            .0
     }
 }
