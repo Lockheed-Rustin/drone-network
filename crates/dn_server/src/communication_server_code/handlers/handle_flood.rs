@@ -71,7 +71,7 @@ impl CommunicationServer {
     /// It also saves the type of each node in `topology_nodes_type`.
     ///
     /// If any newly discovered nodes have pending messages waiting to be sent, this function
-    /// attempts to send them.
+    /// attempts to send them. The same happens for waiting fragments in the session manager.
     ///
     /// # Arguments
     /// * `response` - The flood response to process.
@@ -86,13 +86,20 @@ impl CommunicationServer {
             self.network_topology.add_edge(node_a, node_b);
         }
 
-        // Check for pending messages that can now be sent
+        // Check for pending messages and fragments that can now be sent
         for &(node_id, _) in &response.path_trace {
             if self.pending_messages_queue.has_pending_messages(&node_id) {
                 if let Some(messages) = self.pending_messages_queue.take_pending_messages(&node_id)
                 {
                     for message in messages {
                         self.send_message(message, node_id);
+                    }
+                }
+            }
+            if self.session_manager.hash_waiting_fragments(&node_id) {
+                if let Some(fragments) = self.session_manager.take_waiting_fragments(&node_id) {
+                    for (fragment_index, session_id) in fragments {
+                        self.recover_fragment(session_id, fragment_index)
                     }
                 }
             }
@@ -143,9 +150,10 @@ mod tests {
     use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
-    use std::collections::HashMap;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;
+    use std::collections::HashMap;
+    use wg_2024::packet::{Fragment, Nack, NackType};
 
     #[test]
     fn test_send_flood_response() {
@@ -275,6 +283,86 @@ mod tests {
         } else {
             assert!(false);
         }
+    }
 
+    #[test]
+    fn test_handle_flood_response_waiting_fragments_recovery() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+        let session_id = 12;
+        let fragments = vec![
+            Fragment {
+                fragment_index: 0,
+                total_n_fragments: 3,
+                length: 0,
+                data: [0; 128],
+            },
+            Fragment {
+                fragment_index: 1,
+                total_n_fragments: 3,
+                length: 0,
+                data: [0; 128],
+            },
+            Fragment {
+                fragment_index: 2,
+                total_n_fragments: 3,
+                length: 0,
+                data: [0; 128],
+            },
+        ];
+        server.session_manager.add_session(session_id, fragments, 6);
+        assert!(server.network_topology.contains_edge(3, 6));
+        for f_ind in 0..3 {
+            let packet = Packet {
+                routing_header: SourceRoutingHeader {
+                    hop_index: 1,
+                    hops: vec![3, 1],
+                },
+                session_id,
+                pack_type: PacketType::Nack(Nack {
+                    fragment_index: f_ind,
+                    nack_type: NackType::ErrorInRouting(6),
+                }),
+            };
+            server.handle_packet(packet);
+        }
+        assert!(!server.network_topology.contains_edge(3, 6));
+
+        assert!(server.session_manager.hash_waiting_fragments(&6));
+
+        for _ in 0..3 {
+            let flood_req = helper.packet_recv_3.try_recv().unwrap();
+            println!("[DEBUG] {:?}", flood_req);
+            match flood_req.pack_type {
+                PacketType::FloodRequest(_) => {
+                    assert!(true);
+                }
+                _ => {
+                    assert!(false);
+                }
+            }
+        }
+
+        let flood_response = FloodResponse {
+            flood_id: 0,
+            path_trace: vec![
+                (1, NodeType::Server),
+                (3, NodeType::Drone),
+                (7, NodeType::Drone),
+                (6, NodeType::Client),
+            ],
+        };
+        server.handle_flood_response(flood_response);
+        assert!(!server.session_manager.hash_waiting_fragments(&6));
+
+        for _ in 0..3 {
+            let packet = helper.packet_recv_3.try_recv().unwrap();
+            println!("[DEBUG] {:?}", packet);
+            if let PacketType::MsgFragment(_) = packet.pack_type {
+                assert_eq!(packet.routing_header.hops, vec![1, 3, 7, 6]);
+            } else {
+                assert!(false);
+            }
+        }
     }
 }

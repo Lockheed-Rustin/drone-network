@@ -116,12 +116,12 @@ impl TestServerHelper {
     pub fn wait_for_ack_on_node_x(&self, nr_of_fragments: usize, target_node: NodeId) {
         for _ in 0..nr_of_fragments {
             let _ack = match target_node {
-                3 => {
-                    self.packet_recv_3.try_recv().expect("Expected ack packet")
-                },
-                2 => { self.packet_recv_2.try_recv().expect("Expected ack packet") },
-                5 => { self.packet_recv_5.try_recv().expect("Expected ack packet") },
-                _ => { return;}
+                3 => self.packet_recv_3.try_recv().expect("Expected ack packet"),
+                2 => self.packet_recv_2.try_recv().expect("Expected ack packet"),
+                5 => self.packet_recv_5.try_recv().expect("Expected ack packet"),
+                _ => {
+                    return;
+                }
             };
         }
     }
@@ -141,16 +141,10 @@ impl TestServerHelper {
     pub fn reconstruct_response_on_node_x(&mut self, target_node: NodeId) -> Message {
         let mut reconstructed_response = None;
         loop {
-            let response_packet= match target_node {
-                2 => {
-                    self.packet_recv_2.try_recv()
-                },
-                3 => {
-                    self.packet_recv_3.try_recv()
-                },
-                _ => {
-                    self.packet_recv_5.try_recv()
-                }
+            let response_packet = match target_node {
+                2 => self.packet_recv_2.try_recv(),
+                3 => self.packet_recv_3.try_recv(),
+                _ => self.packet_recv_5.try_recv(),
             };
 
             if let Ok(packet) = response_packet {
@@ -184,10 +178,14 @@ impl TestServerHelper {
         self.wait_for_ack_on_node_x(nr_of_fragments, 3);
     }
 
-    pub fn send_message_and_get_response(&mut self, message: Message, hops: Vec<NodeId>, reconstruction_target_node: NodeId) -> Message {
+    pub fn send_message_and_get_response(
+        &mut self,
+        message: Message,
+        hops: Vec<NodeId>,
+        reconstruction_target_node: NodeId,
+    ) -> Message {
         let serialized_message = self.serialize_message(&message);
         self.send_fragments_to_server(serialized_message, hops);
         self.reconstruct_response_on_node_x(reconstruction_target_node)
     }
-
 }

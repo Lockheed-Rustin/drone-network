@@ -9,11 +9,23 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use dn_message::ServerBody::RespServerType;
 use dn_message::ServerCommunicationBody::RespClientList;
-use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
+use dn_message::{
+    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
+    ServerCommunicationBody, ServerType,
+};
 use wg_2024::network::NodeId;
 
 impl CommunicationServer {
-
+    /// Handles an incoming client request.
+    ///
+    /// This function processes different types of requests sent by a client and delegates
+    /// them to the appropriate handler function. It determines the request type and
+    /// performs the corresponding action, such as sending the server type, handling client
+    /// communication, or ignoring messages intended for a content server.
+    ///
+    /// # Arguments
+    /// * `client_body` - The request body received from the client.
+    /// * `sender_id` - The ID of the node that sent the request.
     pub(crate) fn handler_client_body(&mut self, client_body: ClientBody, sender_id: NodeId) {
         match client_body {
             ClientBody::ReqServerType => {
@@ -21,12 +33,24 @@ impl CommunicationServer {
             }
             ClientBody::ClientCommunication(comm_body) => {
                 self.handle_client_communication_body(comm_body, sender_id);
-            },
+            }
             ClientBody::ClientContent(_) => {} // ignoring messages for the content server
         }
     }
 
-    fn handle_client_communication_body(&mut self, client_communication_body: ClientCommunicationBody, sender_id: NodeId) {
+    /// Handles communication-related requests from a client.
+    ///
+    /// This function processes client communication requests, such as registration
+    /// to a chat, sending messages, or requesting a list of registered clients.
+    ///
+    /// # Arguments
+    /// * `client_communication_body` - The specific communication request sent by the client.
+    /// * `sender_id` - The ID of the client that sent the request.
+    fn handle_client_communication_body(
+        &mut self,
+        client_communication_body: ClientCommunicationBody,
+        sender_id: NodeId,
+    ) {
         match client_communication_body {
             ClientCommunicationBody::ReqRegistrationToChat => {
                 self.register_client(sender_id);

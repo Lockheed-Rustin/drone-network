@@ -43,7 +43,12 @@ impl CommunicationServer {
                 }
                 PacketType::Ack(ack) => {
                     // update the estimated pdr for the last path used to go to the ack sender
-                    for n in self.network_topology.get_saved_path(&sender_id).iter().skip(1) {
+                    for n in self
+                        .network_topology
+                        .get_saved_path(&sender_id)
+                        .iter()
+                        .skip(1)
+                    {
                         self.network_topology.update_estimated_pdr(*n, false);
                     }
                     self.session_manager.handle_ack(ack, &packet.session_id);

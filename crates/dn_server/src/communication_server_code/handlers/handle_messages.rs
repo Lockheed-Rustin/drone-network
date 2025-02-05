@@ -7,7 +7,7 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use crate::communication_server_code::session_manager::SessionId;
 use dn_controller::ServerEvent;
-use dn_message::{Message};
+use dn_message::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, Fragment, Packet, PacketType};
 
@@ -39,9 +39,7 @@ impl CommunicationServer {
 
     /// Handles incoming messages and executes the appropriate actions based on the message type.
     ///
-    /// This function processes client requests, including server type queries, client registration,
-    /// message forwarding, and client list requests. It ignores messages from other servers or for
-    /// a content server.
+    /// This function processes client requests. It ignores messages from other servers.
     /// This function also notifies the simulation controller that a message has been assembled.
     ///
     /// # Arguments
@@ -66,7 +64,7 @@ impl CommunicationServer {
     /// to the specified recipient. It uses source routing to ensure the packet is routed correctly.
     ///
     /// # Arguments
-    /// * `fragment` - The fragment for which to send an acknowledgment.
+    /// * `fragment_index` - The fragment_index of the fragment for which to send an acknowledgment.
     /// * `to` - The recipient node ID.
     /// * `session_id` - The session ID associated with the message.
     /// * `arrived_packet_path` - The path of the incoming packet

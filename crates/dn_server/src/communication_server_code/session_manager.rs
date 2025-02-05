@@ -17,17 +17,22 @@ use wg_2024::packet::{Ack, Fragment};
 
 /// A type alias representing the mapping of fragment index to the corresponding fragment in a session.
 /// Used to track the fragments that are part of a session.
-type PendingFragments = HashMap<u64, Fragment>;
+type PendingFragments = HashMap<FragmentIndex, Fragment>;
 /// A type alias for the session identifier.
 pub type SessionId = u64;
+/// A type alias for the fragment index.
+pub type FragmentIndex = u64;
 
 /// The `SessionManager` struct is responsible for managing sessions and their associated fragments.
 /// It tracks pending fragments for each session, processes acknowledgments, and manages session states.
 /// The `SessionManager` also handles the creation and identification of sessions through a session ID counter.
 pub struct SessionManager {
     session_id_counter: SessionId,
-    pending_sessions: HashMap<u64, PendingFragments>, // session_id -> (fragment_index -> fragment)
-    pending_sessions_destination: HashMap<u64, NodeId>, // session_id -> destination_id: NodeId
+    pending_sessions: HashMap<SessionId, PendingFragments>, // session_id -> (fragment_index -> fragment)
+    pending_sessions_destination: HashMap<SessionId, NodeId>, // session_id -> destination_id: NodeId
+
+    // destination_id -> all the fragments that need to go there. Each fragment is associated with its SessionId
+    waiting_fragments: HashMap<NodeId, Vec<(FragmentIndex, SessionId)>>,
 }
 
 impl SessionManager {
@@ -43,6 +48,7 @@ impl SessionManager {
             session_id_counter: 0,
             pending_sessions: HashMap::new(),
             pending_sessions_destination: HashMap::new(),
+            waiting_fragments: HashMap::new(),
         }
     }
 
@@ -85,7 +91,7 @@ impl SessionManager {
         }
     }
 
-    /// Retrieves a specific fragment from the session and returns it with the destination node.
+    /// Retrieves a specific fragment from the session and returns a copy of it with the destination node.
     ///
     /// This function allows for recovering a fragment by its index from the list of pending fragments in
     /// a session. It also returns the destination node ID associated with the session. If the fragment
@@ -122,10 +128,106 @@ impl SessionManager {
         self.session_id_counter += 1;
         res
     }
+
+    /// Adds a fragment index, associated with its session id, to the waiting queue for a specific
+    /// destination node.
+    ///
+    /// If the destination node does not have any waiting fragments yet, a new entry is created.
+    /// The fragment index and the session id are then appended to the corresponding list.
+    ///
+    /// # Arguments
+    /// * `dest` - The ID of the destination node.
+    /// * `fragment_index` - The fragment_index to be added to the waiting queue.
+    /// * `session_id` - The session_id associated with that fragment
+    pub fn add_to_waiting_fragments(
+        &mut self,
+        dest: NodeId,
+        fragment_index: FragmentIndex,
+        session_id: SessionId,
+    ) {
+        self.waiting_fragments
+            .entry(dest)
+            .or_default()
+            .push((fragment_index, session_id));
+    }
+
+    /// Checks if there are any waiting fragments for a given destination node.
+    ///
+    /// This function returns `true` if there are fragments waiting to be sent to the specified node,
+    /// otherwise, it returns `false`.
+    ///
+    /// # Arguments
+    /// * `dest` - A reference to the ID of the destination node.
+    ///
+    /// # Returns
+    /// * `bool` - `true` if there are waiting fragments, `false` otherwise.
+    pub fn hash_waiting_fragments(&mut self, dest: &NodeId) -> bool {
+        self.waiting_fragments.contains_key(dest)
+    }
+
+    /// Retrieves and removes all waiting fragment indexes for a given destination node.
+    ///
+    /// This function takes ownership of the stored fragment indexes, removing them from the waiting list.
+    /// If there are no waiting fragments for the specified node, it returns `None`.
+    ///
+    /// # Arguments
+    /// * `dest` - A reference to the ID of the destination node.
+    ///
+    /// # Returns
+    /// * `Option<Vec<FragmentIndex, SessionId>>` - A vector containing the retrieved fragment
+    ///    indexes and session ids if they exist, otherwise `None`.
+    pub fn take_waiting_fragments(
+        &mut self,
+        dest: &NodeId,
+    ) -> Option<Vec<(FragmentIndex, SessionId)>> {
+        self.waiting_fragments.remove(dest)
+    }
 }
 
 impl Default for SessionManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_to_waiting_fragments() {
+        let mut manager = SessionManager::new();
+        let dest = 6;
+        let fragment_index = 1;
+        let session_id = 1;
+        manager.add_to_waiting_fragments(dest, fragment_index, session_id);
+        assert!(manager.hash_waiting_fragments(&dest));
+    }
+
+    #[test]
+    fn test_take_waiting_fragments() {
+        let mut manager = SessionManager::new();
+
+        manager.add_to_waiting_fragments(6, 1, 3);
+        manager.add_to_waiting_fragments(6, 2, 3);
+        manager.add_to_waiting_fragments(6, 1, 4);
+
+        let fragments = manager.take_waiting_fragments(&6);
+        assert!(fragments.is_some());
+        let fragments = fragments.unwrap();
+        assert_eq!(3, fragments.len());
+        assert_eq!(3, fragments[0].1);
+        assert_eq!(3, fragments[1].1);
+        assert_eq!(4, fragments[2].1);
+
+        assert!(!manager.hash_waiting_fragments(&6));
+    }
+
+    #[test]
+    fn test_has_waiting_fragments() {
+        let mut manager = SessionManager::new();
+        assert!(!manager.hash_waiting_fragments(&6));
+        manager.add_to_waiting_fragments(6, 1, 3);
+        assert!(manager.hash_waiting_fragments(&6));
     }
 }

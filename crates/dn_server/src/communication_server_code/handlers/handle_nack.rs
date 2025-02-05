@@ -18,8 +18,7 @@ use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
 impl CommunicationServer {
     /// This function processes an incoming NACK and takes the appropriate action based on its type.
-    /// The action taken can vary from recovering dropped message fragments to fixing routing issues
-    /// or updating the network topology.
+    /// The action taken can vary from recovering dropped message fragments to fixing routing issues.
     ///
     /// ### NACK Types:
     /// - **`Error in Routing`**: a drone tried to send a packet to another drone that was not among
@@ -52,8 +51,11 @@ impl CommunicationServer {
                     .update_node_type(source_routing_header.hops[0], NodeType::Drone);
             }
             NackType::Dropped => {
-                self.network_topology.update_estimated_pdr(source_routing_header.hops[0], true);
-                self.network_topology.remove_path(&source_routing_header.hops[0]);
+                self.network_topology
+                    .update_estimated_pdr(source_routing_header.hops[0], true);
+                self.network_topology
+                    .remove_path(&source_routing_header.hops[0]);
+                self.update_network_topology();
                 self.recover_fragment(session_id, nack.fragment_index);
             }
             NackType::UnexpectedRecipient(_) => {
@@ -69,6 +71,9 @@ impl CommunicationServer {
     /// reassemble it. If the fragment is successfully recovered, it is transmitted to the correct
     /// recipient.
     ///
+    /// If the path to the recipient is not known, the fragment index is added to the waiting
+    /// fragments list.
+    ///
     /// ### Arguments:
     /// - `session_id`: The session ID associated with the fragment.
     /// - `fragment_index`: The index of the fragment to recover.
@@ -76,7 +81,7 @@ impl CommunicationServer {
     /// # Panics
     /// This function panics if the specified fragment does not exist in the session manager.
     /// This indicates that an invalid session ID or fragment index was provided.
-    fn recover_fragment(&mut self, session_id: SessionId, fragment_index: u64) {
+    pub(crate) fn recover_fragment(&mut self, session_id: SessionId, fragment_index: u64) {
         if let Some((fragment, dest)) = self
             .session_manager
             .recover_fragment(session_id, fragment_index)
@@ -85,12 +90,19 @@ impl CommunicationServer {
                 .network_topology
                 .source_routing(self.id, dest)
                 .expect("Error in routing");
-            let packet = Packet {
-                routing_header: SourceRoutingHeader { hop_index: 1, hops },
-                session_id,
-                pack_type: PacketType::MsgFragment(fragment),
-            };
-            self.send_packet(packet);
+
+            if !hops.is_empty() {
+                let packet = Packet {
+                    routing_header: SourceRoutingHeader { hop_index: 1, hops },
+                    session_id,
+                    pack_type: PacketType::MsgFragment(fragment),
+                };
+                self.send_packet(packet);
+            } else {
+                // I don't know the path to `dest` yet
+                self.session_manager
+                    .add_to_waiting_fragments(dest, fragment_index, session_id);
+            }
         } else {
             panic!(
                 "tried to recover a fragment that is not in the session_manager.\n\
@@ -193,15 +205,71 @@ mod tests {
             .add_session(session_id, vec![fragment], 6);
 
         test_server_helper.server.handle_packet(packet);
+        let _received_flood_req = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("No recover packet received on channel 3");
         let received_packet = test_server_helper
             .packet_recv_3
             .try_recv()
             .expect("No recover packet received on channel 3");
         assert_eq!(received_packet.session_id, session_id);
 
-        assert_eq!(test_server_helper.server.network_topology.get_node_cost(&3).unwrap(), 40);
+        assert_eq!(
+            test_server_helper
+                .server
+                .network_topology
+                .get_node_cost(&3)
+                .unwrap(),
+            40
+        );
 
         // UNEXPECTED RECIPIENT
         // nothing to do
+    }
+
+    #[test]
+    fn test_waiting_fragment_added() {
+        let mut test_server_helper = TestServerHelper::new();
+
+        let fragment_index = 23;
+        let (packet, session_id) = TestServerHelper::test_received_packet(
+            PacketType::Nack(Nack {
+                fragment_index,
+                nack_type: NackType::ErrorInRouting(6),
+            }),
+            vec![3, 1],
+        );
+        let pending_fragment = TestServerHelper::test_fragment(fragment_index, 100);
+        test_server_helper.server.session_manager.add_session(
+            session_id,
+            vec![pending_fragment],
+            6,
+        );
+
+        assert!(test_server_helper
+            .server
+            .network_topology
+            .contains_edge(3, 6));
+        test_server_helper.server.handle_packet(packet);
+        assert!(!test_server_helper
+            .server
+            .network_topology
+            .contains_edge(3, 6));
+
+        let flood_req = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("Expected flood_req because of update topology");
+        match flood_req.pack_type {
+            PacketType::FloodRequest(_) => {}
+            _ => panic!("Expected FloodRequest pack"),
+        }
+
+        // THERE IS NO KNOWN PATH TO 6 NOW
+        assert!(test_server_helper
+            .server
+            .session_manager
+            .hash_waiting_fragments(&6));
     }
 }

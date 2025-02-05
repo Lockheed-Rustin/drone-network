@@ -1,4 +1,5 @@
 use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
+use crate::communication_server_code::pending_message_queue::PendingMessagesQueue;
 use crate::communication_server_code::session_manager::SessionManager;
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
@@ -6,12 +7,10 @@ use dn_message::assembler::Assembler;
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
-use crate::communication_server_code::pending_message_queue::PendingMessagesQueue;
-// TODO: merge main
-// TODO: nack tests to be checked
+// TODO: instead of firing a lot of update_topology(), try a way to limit them (like when receiving a lot of nack for the same issue)
+// TODO: nack tests to be checked.
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
-// TODO: I could update the infos about the pdr of that drone and use it for my sr-protocol. also cancel saved path after packet drop
 
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,
