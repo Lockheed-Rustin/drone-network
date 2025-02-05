@@ -14,6 +14,7 @@ use wg_2024::{
     network::NodeId,
     packet::{NodeType, Packet},
 };
+use dn_server::communication_server_code::communication_server::CommunicationServer;
 
 #[derive(Clone, Debug)]
 pub enum NetworkInitError {
@@ -181,12 +182,12 @@ fn init_servers(opt: &mut InitOption) {
         let id = server.id;
 
         opt.pool.spawn(move || {
-            Server::new(
-                id,
+            CommunicationServer::new(
                 controller_send,
                 controller_recv,
                 packet_send,
                 packet_recv,
+                id,
             )
             .run();
         });
