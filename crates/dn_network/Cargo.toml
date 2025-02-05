@@ -7,6 +7,33 @@ edition = "2021"
 crossbeam-channel = "0.5.13"
 wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
 lockheedrustin-drone = { git = "https://github.com/Lockheed-Rustin/drone.git" }
+
+rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
+d-r-o-n-e_drone = { git = "https://github.com/AP-2024-25-D-R-O-N-E/drone.git" }
+skylink = { git = "https://github.com/Suge42/Skylink_drone.git" }
+bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false }
+drone_bettercalldrone = { git = "https://github.com/BetterCallDrone/drone_BetterCallDrone.git" }
+rustbusters-drone = { git = "https://github.com/Rustbusters/drone.git" }
+rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
+getdroned = { git = "https://github.com/GetDroned/Drone.git" }
+bobry_w_locie = { git = "https://github.com/Seregno/Public_Bry_w_locie.git" }
+rf_drone = { git = "https://github.com/RustAndFurious/RF_drone.git", package = "RF_drone" }
+rusteze_drone = { git = "https://github.com/Rusteze-AP/drone.git" }
+rolling_drone = { git = "https://github.com/giorebecchi/RollingDrone.git"}
+null-pointer-drone = { git = "https://github.com/The-Null-Pointer-Patrol/null-pointer-drone.git"}
+flypath = { git = "https://github.com/panigiove/FlyPath.git", package = "flyPath" }
+dronegowski = { git = "https://github.com/ADVPROG-2024/Dronegowski.git" }
+rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
+rustafarian-drone = { git = "https://github.com/Rustafarian-Unitn/rustafarian-drone"}
+fungi_drone = { git = "https://github.com/Fungi-B-D/Fungi-Drone.git" }
+rustable-drone = { git = "https://github.com/SmL-Boi/RustableDroneLib.git" }
+ledron_james = { git = "https://github.com/anass03/LeDron_James.git", package = "LeDron_James" }
+ap2024_rustinpeace_nosounddrone = { git = "https://github.com/Rust-In-Peace-AP/No-Sound-Drone.git" }
+wg_2024-rust = { git = "https://github.com/LuigiMiazzo17/unitn-advancedProgramming-WGL_2024-drone.git" }
+dr_ones = { git = "https://github.com/Dr-Ones/drone" }
+rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
+trust_drone = { git = "https://github.com/Beto-prog/TrustDone", package = "drone" }
+
 dn_controller = { path = "../dn_controller" }
 dn_client = { path = "../dn_client" }
 dn_server = { path = "../dn_server" }

@@ -116,7 +116,7 @@ fn init_drones(opt: &mut InitOption) {
         let drone_pdr = drone.pdr;
 
         opt.pool.spawn(move || {
-            LockheedRustin::new(
+            ledron_james::Drone::new(
                 drone_id,
                 controller_send,
                 controller_recv,
