@@ -90,12 +90,25 @@ pub struct DroneInfo {
 }
 
 impl DroneInfo {
-    pub fn get_pdr(&self) -> f64 {
-        if self.packet_traveled == 0 {0.0}
-        else {(self.packet_dropped as f64)/(self.packet_traveled as f64)}
+
+    /// real_packet_sent_factor
+    /// Returns the estimated number of packet to send for every packet which has been delivered
+    pub fn rps_factor(&self) -> f64 {
+        if self.packet_traveled == 0 {
+            1.0
+        }
+        else {
+            let pdr = (self.packet_dropped as f64)/(self.packet_traveled as f64);
+
+            let mut rps = 0.0;
+            for i in 0..=10 {
+                rps += pdr.powi(i);
+            }
+
+            rps
+        }
     }
 }
-
 
 
 //---------- CLIENT'S SOURCE ROUTING ----------//
@@ -387,7 +400,7 @@ impl ClientRouting {
                             {
                                 if let Some(edge_weight) = self.topology.edge_weight(node, neighbor) {
                                     if let Some(drone_info) = self.drones_info.get(&neighbor) {
-                                        let total_distance = (distance + edge_weight) * (1.0 + drone_info.get_pdr());
+                                        let total_distance = (distance + edge_weight) * drone_info.rps_factor();
                                         queue.push((Reverse(QP::new(total_distance)), neighbor));
 
                                         if let Some(&(_, pred_weight)) = distances.get(&neighbor) {
