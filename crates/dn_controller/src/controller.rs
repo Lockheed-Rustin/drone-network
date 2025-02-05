@@ -212,6 +212,12 @@ impl SimulationController {
         sender.send(ClientCommand::SendMessage(body, dest)).ok()
     }
 
+    pub fn shortcut(&self, p: Packet) -> Option<()> {
+        let dest_id = p.routing_header.hops.last()?;
+        let sender = &self.nodes.get(dest_id)?.packet_send;
+        sender.send(p).ok()
+    }
+
     // TODO: remove this after the fair
     pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
         let sender = self.get_client_sender(id)?;
@@ -224,6 +230,10 @@ impl SimulationController {
         let sender = self.get_client_sender(id)?;
         sender.send(ClientCommand::SendFloodRequest).ok()?;
         Some(())
+    }
+
+    pub fn get_topology(&self) -> &Topology {
+        &self.topology
     }
 
     pub fn is_valid_topology(&self) -> bool {
@@ -279,7 +289,7 @@ impl Drop for SimulationController {
                     sender.send(DroneCommand::Crash).unwrap();
                     // remove all senders
                     for neighbor in self.topology.neighbors(id) {
-                        sender.send(DroneCommand::RemoveSender(neighbor)).unwrap();
+                        _ = sender.send(DroneCommand::RemoveSender(neighbor));
                     }
                 }
                 NodeType::Client { sender } => sender.send(ClientCommand::Return).unwrap(),
