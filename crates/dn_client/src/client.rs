@@ -57,7 +57,10 @@ impl Client {
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
             ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
             ClientCommand::SendAck => self.send_ack(session_id),
-            _ => {}
+            ClientCommand::SendMessage(_, _) => {}
+            ClientCommand::Return => {
+                std::process::exit(0);
+            }
         }
     }
 

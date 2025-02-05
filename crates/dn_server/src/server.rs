@@ -1,5 +1,5 @@
-use crossbeam_channel::{Receiver, Sender};
-use dn_controller::{ServerCommand, ServerEvent};
+use crossbeam_channel::{select, Receiver, Sender};
+use dn_controller::{ClientCommand, ServerCommand, ServerEvent};
 use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, NodeType, Packet, PacketType};
@@ -30,8 +30,26 @@ impl Server {
     }
 
     pub fn run(&mut self) {
-        while let Ok(packet) = self.packet_recv.recv() {
-            self.handle_packet(packet);
+        select! {
+                recv(self.controller_recv) -> command => {
+                    if let Ok(cmd) = command {
+                        self.handle_command(cmd);
+                    }
+                },
+                recv(self.packet_recv) -> packet => {
+                    if let Ok(pckt) = packet {
+                        self.handle_packet(pckt);
+                    }
+                }
+            }
+    }
+
+    fn handle_command(&mut self, command: ServerCommand) {
+        match command {
+            ServerCommand::Return => {
+                std::process::exit(0);
+            }
+            _ => {}
         }
     }
 
