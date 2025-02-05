@@ -116,7 +116,7 @@ impl Client {
         } else if self.id == 2 {
             SourceRoutingHeader {
                 hop_index: 1,
-                hops: vec![2, 6, 7, 4],
+                hops: vec![2, 6, 9, 4],
             }
         } else {
             panic!("error in topology sending fragment");
