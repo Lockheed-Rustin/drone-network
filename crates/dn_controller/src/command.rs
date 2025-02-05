@@ -21,14 +21,30 @@ pub enum ServerEvent {
     // receiver NodeId. Required because it's not present in FloodRequest
     PacketReceived(Packet, NodeId),
     PacketSent(Packet),
-    MessageAssembled{body: ClientBody, from: NodeId, to: NodeId},
-    MessageFragmented{body: ServerBody, from: NodeId, to: NodeId},
+    MessageAssembled {
+        body: ClientBody,
+        from: NodeId,
+        to: NodeId,
+    },
+    MessageFragmented {
+        body: ServerBody,
+        from: NodeId,
+        to: NodeId,
+    },
 }
 
 pub enum ClientEvent {
     // receiver NodeId. Required because it's not present in FloodRequest
     PacketReceived(Packet, NodeId),
     PacketSent(Packet),
-    MessageAssembled{body: ServerBody, from: NodeId, to: NodeId},
-    MessageFragmented{body: ClientBody, from: NodeId, to: NodeId},
+    MessageAssembled {
+        body: ServerBody,
+        from: NodeId,
+        to: NodeId,
+    },
+    MessageFragmented {
+        body: ClientBody,
+        from: NodeId,
+        to: NodeId,
+    },
 }

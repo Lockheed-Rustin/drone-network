@@ -232,6 +232,10 @@ impl SimulationController {
         Some(())
     }
 
+    pub fn get_topology(&self) -> &Topology {
+        &self.topology
+    }
+
     pub fn is_valid_topology(&self) -> bool {
         if connected_components(&self.topology) != 1 {
             return false;
