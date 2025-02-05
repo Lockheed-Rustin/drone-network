@@ -143,7 +143,7 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
                         .run();
                 });
             }
-            // rustastics
+            // rustastics ---
             2 => {
                 opt.pool.spawn(move || {
                     rustastic_drone::RustasticDrone::new(
@@ -171,7 +171,7 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
                         .run();
                 });
             }
-            // rusty drones
+            // rusty drones ---
             4 => {
                 opt.pool.spawn(move || {
                     rusty_drones::RustyDrone::new(
@@ -185,7 +185,7 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
                         .run();
                 });
             }
-            // rustroveri
+            // rustroveri ---
             5 => {
                 opt.pool.spawn(move || {
                     rust_roveri::RustRoveri::new(
@@ -227,7 +227,7 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
                         .run();
                 });
             }
-            // fungi
+            // fungi ---
             8 => {
                 opt.pool.spawn(move || {
                     fungi_drone::FungiDrone::new(
@@ -241,7 +241,7 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
                         .run();
                 });
             }
-            // rust do it
+            // rust do it ---
             9 => {
                 opt.pool.spawn(move || {
                     rust_do_it::RustDoIt::new(
