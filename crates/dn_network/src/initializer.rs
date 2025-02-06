@@ -206,19 +206,19 @@ fn init_drones(opt: &mut InitOption, magic_number: u32) {
             }
 
             // skylink
-            6 => {
-                opt.pool.spawn(move || {
-                    skylink::SkyLinkDrone::new(
-                        drone_id,
-                        controller_send,
-                        controller_recv,
-                        packet_recv,
-                        packet_send,
-                        drone_pdr,
-                    )
-                        .run();
-                });
-            }
+            // 6 => {
+            //     opt.pool.spawn(move || {
+            //         skylink::SkyLinkDrone::new(
+            //             drone_id,
+            //             controller_send,
+            //             controller_recv,
+            //             packet_recv,
+            //             packet_send,
+            //             drone_pdr,
+            //         )
+            //             .run();
+            //     });
+            // }
 
             // rustbusters
             7 => {
