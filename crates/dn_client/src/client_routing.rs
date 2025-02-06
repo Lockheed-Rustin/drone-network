@@ -59,16 +59,32 @@ impl Ord for QP {
 
 
 //---------- STRUCT SERVER INFO ----------//
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct ServerInfo {
     path: Path,
     reachable: bool,
     packet_exchanged: u64,
+    weight: f64,
+}
+
+impl Default for ServerInfo {
+    fn default() -> Self {
+        Self {
+            path: Vec::new(),
+            reachable: false,
+            packet_exchanged: 0, //since last update of paths to servers
+            weight: 1.0,
+        }
+    }
 }
 
 impl ServerInfo {
     pub fn inc_packet_exchanged(&mut self) {
         self.packet_exchanged += 1;
+    }
+
+    pub fn update_weight(&mut self, new_weight: f64) {
+        self.weight = (new_weight + (0.5 * self.weight)) / 1.5;
     }
 }
 
@@ -330,12 +346,14 @@ impl ClientRouting {
 
         //ord servers: heaviest "path" first
         let mut ord_vec: BinaryHeap<(QP, NodeId)> = BinaryHeap::new();
-        for (server, info) in self.servers_info.iter() {
+        for (server, info) in self.servers_info.iter_mut() {
             if mean == 0.0 {
                 ord_vec.push((QP::new(1.0), *server));
             }
             else {
-                ord_vec.push((QP::new(info.packet_exchanged as f64 / mean), *server));
+                let act_weight = info.packet_exchanged as f64 / mean;
+                info.update_weight(act_weight);
+                ord_vec.push((QP::new(info.weight), *server));
             }
 
         }
@@ -451,7 +469,6 @@ impl ClientRouting {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BinaryHeap;
     use wg_2024::packet::NodeType::{Client, Drone, Server};
 
     //---------- DRONE INFO TEST ----------//
@@ -492,14 +509,20 @@ mod tests {
         assert!(server_info.path.is_empty());
         assert!(!server_info.reachable);
         assert_eq!(server_info.packet_exchanged, 0);
+        assert_eq!(server_info.weight, 1.0);
 
 
         //---------- functions ----------//
         for _ in 0..100 {
             server_info.inc_packet_exchanged();
         }
-
         assert_eq!(server_info.packet_exchanged, 100);
+
+        server_info.update_weight(1.6);
+        assert_eq!((server_info.weight*10.0).trunc()/10.0, 1.4);
+
+        server_info.update_weight(1.1);
+        assert_eq!((server_info.weight*10.0).trunc()/10.0, 1.2);
     }
 
 
@@ -713,13 +736,13 @@ mod tests {
         assert!(!server_info.reachable);
 
         assert_eq!(*client_routing.topology.edge_weight(1,2).unwrap(), 1.0);
-        assert_eq!(*client_routing.topology.edge_weight(2,3).unwrap(), 2.6);
-        assert_eq!(*client_routing.topology.edge_weight(3,6).unwrap(), 2.6);
+        assert_eq!((*client_routing.topology.edge_weight(2,3).unwrap()*10.0).trunc()/10.0, 2.4);
+        assert_eq!((*client_routing.topology.edge_weight(3,6).unwrap()*10.0).trunc()/10.0, 2.4);
 
 
         assert_eq!(*client_routing.topology.edge_weight(1,4).unwrap(), 1.0);
-        assert_eq!(*client_routing.topology.edge_weight(4,5).unwrap(), 1.4);
-        assert_eq!(*client_routing.topology.edge_weight(5,7).unwrap(), 1.4);
+        assert_eq!((*client_routing.topology.edge_weight(4,5).unwrap()*10.0).trunc()/10.0, 1.6);
+        assert_eq!((*client_routing.topology.edge_weight(5,7).unwrap()*10.0).trunc()/10.0, 1.6);
 
 
         //---------- get path ----------//
