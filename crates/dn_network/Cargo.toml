@@ -13,7 +13,7 @@ rustastic-drone = { git = "https://github.com/Rustastic/RustasticDrone.git" }
 bagel_bomber = { git = "https://github.com/daw-dev/bagel-bomber.git", default-features = false }
 rusty_drones = { git = "https://github.com/rusty-drone-2024/rusty-drone.git" }
 rust-roveri = { git = "https://github.com/RustRoveri/rust-roveri.git" }
-#skylink = { git = "https://github.com/Suge42/Skylink_drone.git" }
+skylink = { git = "https://github.com/Suge42/Skylink_drone.git" }
 rustbusters-drone = { git = "https://github.com/Rustbusters/drone.git" }
 fungi_drone = { git = "https://github.com/Fungi-B-D/Fungi-Drone.git" }
 rust_do_it = { git = "https://github.com/RustDoIt/Drone.git" }
