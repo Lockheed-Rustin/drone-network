@@ -168,13 +168,11 @@ impl ClientRouting {
 
     pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId)  {
         if self.topology.remove_edge(self.client_id, neighbor).is_some() {
-            //self.compute_routing_paths();
-
-            for (_, server_info) in self.servers_info.iter_mut() {
-                if server_info.path.len() >= 2 && server_info.path.contains(&neighbor) {
-                    server_info.reachable = false;
-                }
+            if self.topology.neighbors(neighbor).next().is_none() {
+                self.topology.remove_node(neighbor);
             }
+
+            self.compute_routing_paths();
         }
     }
 
@@ -194,8 +192,10 @@ impl ClientRouting {
         }
     }
 
-    pub fn remove_drone(&mut self, drone: NodeId)  {
-        if self.topology.remove_node(drone) {
+    pub fn remove_node(&mut self, node: NodeId)  {
+        if self.topology.remove_node(node) {
+            self.drones_info.remove(&node);
+
             self.compute_routing_paths();
         }
     }
@@ -275,18 +275,19 @@ impl ClientRouting {
     //---------- update info on packet exchanged ----------//
     pub fn correct_send_to(&mut self, server: NodeId) {
         if let Some(server_info) = self.servers_info.get(&server) {
-            self.correct_received_from(server, &server_info.path.clone());
+            self.correct_exchanged_with(server, &server_info.path.clone());
         }
     }
 
-    pub fn correct_received_from(&mut self, server: NodeId, path: &Path) {
+    pub fn correct_exchanged_with(&mut self, node: NodeId, path: &Path) {
         for drone in path.iter() {
             if let Some(drone_info) = self.drones_info.get_mut(drone) {
                 drone_info.inc_correct_traveled();
             }
         }
 
-        if let Some(server_info) = self.servers_info.get_mut(&server) {
+        //if final node is a server
+        if let Some(server_info) = self.servers_info.get_mut(&node) {
             server_info.inc_packet_exchanged();
         }
     }
@@ -325,7 +326,7 @@ impl ClientRouting {
     /// Update the information about path from client to the connected servers
     ///
     /// Return an option to a list of servers which became reachable after updating their routing paths.
-    fn compute_routing_paths(&mut self) -> Option<Vec<(NodeId, Path)>> {
+    pub fn compute_routing_paths(&mut self) -> Option<Vec<(NodeId, Path)>> {
         if self.servers_info.is_empty(){
             return None; //No server in the topology
         }
@@ -606,7 +607,7 @@ mod tests {
 
 
         //---------- remove drone ----------//
-        client_routing.remove_drone(2);
+        client_routing.remove_node(2);
 
         assert_eq!(client_routing.topology.node_count(), 3);
 
@@ -668,8 +669,8 @@ mod tests {
     #[test]     //---------- COMPUTE ROUTING ----------//
     fn client_routing_test_part3() {
         /*
-        topologia con 6 nodi: 1(Client), 2(Drone), 3(Drone), 4(Drone), 5(Drone), 6(Server), 7(Server), 8(Server)
-        paths: 1-2-3-6, 1-4-5-6, 1-2-3-7, 1-4-5-7
+        topologia con 8 nodi: 1(Client), 2(Drone), 3(Drone), 4(Drone), 5(Drone), 6(Server), 7(Server), 8(IsolatedServer)
+        paths: 1-2-3-6, 1-4-5-6, 1-2-3-7, 1-4-5-7;      path to became server 8 reachable 1-4-5-8
         drones: pkt_traveled -> 100;    pkt_dropped -> 2(5), 3(10), 4(15), 5(20)
         servers: pkt_exchanged: -> 6(160), 7(40), 8(100)
         */
@@ -750,5 +751,13 @@ mod tests {
         assert_eq!(client_routing.get_path(7).unwrap(), vec![1,4,5,7]);
         assert!(client_routing.get_path(8).is_none());  //server unreachable
         assert!(client_routing.get_path(9).is_none());  //server doesn't exist
+
+
+        //---------- test became reachable ----------//
+        let path5: FloodPath = vec![(1, Client), (4, Drone), (5, Drone), (8, Server)];
+        let servers_became_reachable = client_routing.add_path(&path5).unwrap();
+
+        assert_eq!(servers_became_reachable[0].0, 8);
+        assert_eq!(servers_became_reachable[0].1, vec![1,4,5,8]);
     }
 }
