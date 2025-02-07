@@ -108,11 +108,11 @@ impl CommunicationServer {
 
 #[cfg(test)]
 mod tests {
-    use wg_2024::network::SourceRoutingHeader;
     use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;
+    use wg_2024::network::SourceRoutingHeader;
     use wg_2024::packet::{Ack, Fragment};
 
     #[test]
@@ -139,7 +139,7 @@ mod tests {
         let helper = TestServerHelper::new();
         let mut server = helper.server;
         // Test false because not being last hop
-        let packet= Packet {
+        let packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 2,
                 hops: vec![6, 3, 1, 8, 9, 10],
@@ -147,7 +147,10 @@ mod tests {
             session_id: 0,
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
         };
-        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), false);
+        assert_eq!(
+            server.check_routing(&packet, packet.pack_type.clone()),
+            false
+        );
         let packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 2,
@@ -161,7 +164,10 @@ mod tests {
                 data: [0; 128],
             }),
         };
-        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), false);
+        assert_eq!(
+            server.check_routing(&packet, packet.pack_type.clone()),
+            false
+        );
         // Test false with unexpected recipient
         let nack = helper.packet_recv_3.try_recv().unwrap();
         if let PacketType::Nack(nack) = nack.pack_type {
@@ -173,7 +179,7 @@ mod tests {
             }
         }
         // Test true
-        let packet= Packet {
+        let packet = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 2,
                 hops: vec![6, 3, 1],
@@ -181,6 +187,9 @@ mod tests {
             session_id: 0,
             pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
         };
-        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), true);
+        assert_eq!(
+            server.check_routing(&packet, packet.pack_type.clone()),
+            true
+        );
     }
 }
