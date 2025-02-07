@@ -137,11 +137,11 @@ impl CommunicationServer {
             sender
                 .send(flood_request_packet.clone())
                 .expect("Error in send");
-        }
 
-        self.controller_send
-            .send(ServerEvent::PacketSent(flood_request_packet))
-            .expect("Error in controller_send");
+            self.controller_send
+                .send(ServerEvent::PacketSent(flood_request_packet.clone()))
+                .expect("Error in controller_send");
+        }
     }
 }
 
