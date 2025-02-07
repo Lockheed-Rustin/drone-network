@@ -35,28 +35,7 @@ impl CommunicationServer {
             return;
         }
 
-        if !self.check_routing(&packet) {
-            // the packet is not for me. Unexpected recipient nack is sent.
-            let mut hops = packet
-                .routing_header
-                .hops
-                .iter()
-                .cloned()
-                .take(packet.routing_header.hop_index + 1)
-                .rev()
-                .collect::<Vec<_>>();
-            hops[0] = self.id;
-
-            let nack = Nack {
-                fragment_index: 0,
-                nack_type: NackType::UnexpectedRecipient(self.id),
-            };
-            self.send_nack(nack, hops);
-            return;
-        }
-
-        if packet.routing_header.hops.last() != Some(&self.id) {
-            // The packet is for me, but I don't have to process it because I'm not the recipient
+        if !self.check_routing(&packet, packet.pack_type.clone()) {
             return;
         }
 
@@ -88,25 +67,53 @@ impl CommunicationServer {
     /// Checks if the routing information in the packet is correct for this server.
     ///
     /// The function compares the current hop index in the routing header with the server's ID.
-    /// If they match, it means the packet is intended for this server to process.
+    /// - If they match, it checks if the server is the meant recipient.
+    /// - If they don't match, the function return false because the packet was not for the server to
+    /// process. In this case, it also sends an Unexpected Recipient nack to the sender.
     ///
     /// # Arguments
     /// * `packet` - The packet whose routing information is to be checked.
+    /// * `packet_type` - The packet type field of the packet
     ///
     /// # Returns
     /// * `true` if the packet is intended for this server, otherwise `false`.
-    fn check_routing(&self, packet: &Packet) -> bool {
-        packet.routing_header.hops[packet.routing_header.hop_index] == self.id
+    fn check_routing(&mut self, packet: &Packet, packet_type: PacketType) -> bool {
+        if packet.routing_header.hops[packet.routing_header.hop_index] == self.id {
+            // False if the packet is for me, but I don't have to process it because I'm not the recipient
+            packet.routing_header.hops.last() == Some(&self.id)
+        } else {
+            if let PacketType::MsgFragment(f) = packet_type {
+                // the packet is not for me. Unexpected recipient nack is sent.
+                let mut hops = packet
+                    .routing_header
+                    .hops
+                    .iter()
+                    .cloned()
+                    .take(packet.routing_header.hop_index + 1)
+                    .rev()
+                    .collect::<Vec<_>>();
+                hops[0] = self.id;
+
+                let nack = Nack {
+                    fragment_index: f.fragment_index,
+                    nack_type: NackType::UnexpectedRecipient(self.id),
+                };
+                self.send_nack(nack, hops);
+            }
+
+            false
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use wg_2024::network::SourceRoutingHeader;
     use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;
-    use wg_2024::packet::Ack;
+    use wg_2024::packet::{Ack, Fragment};
 
     #[test]
     fn test_update_pdr_when_receiving_ack() {
@@ -125,5 +132,55 @@ mod tests {
 
         // pdr-3 should be = 24
         assert_eq!(server.network_topology.get_node_cost(&3).unwrap(), 24);
+    }
+
+    #[test]
+    fn test_check_routing() {
+        let helper = TestServerHelper::new();
+        let mut server = helper.server;
+        // Test false because not being last hop
+        let packet= Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 2,
+                hops: vec![6, 3, 1, 8, 9, 10],
+            },
+            session_id: 0,
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+        };
+        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), false);
+        let packet = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 2,
+                hops: vec![6, 3, 7],
+            },
+            session_id: 0,
+            pack_type: PacketType::MsgFragment(Fragment {
+                fragment_index: 111,
+                total_n_fragments: 1,
+                length: 0,
+                data: [0; 128],
+            }),
+        };
+        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), false);
+        // Test false with unexpected recipient
+        let nack = helper.packet_recv_3.try_recv().unwrap();
+        if let PacketType::Nack(nack) = nack.pack_type {
+            assert_eq!(nack.fragment_index, 111);
+            if let NackType::UnexpectedRecipient(nack_id) = nack.nack_type {
+                assert_eq!(nack_id, 1);
+            } else {
+                assert!(false);
+            }
+        }
+        // Test true
+        let packet= Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 2,
+                hops: vec![6, 3, 1],
+            },
+            session_id: 0,
+            pack_type: PacketType::Ack(Ack { fragment_index: 0 }),
+        };
+        assert_eq!(server.check_routing(&packet, packet.pack_type.clone()), true);
     }
 }
