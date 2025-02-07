@@ -113,17 +113,20 @@ impl CommunicationServer {
     /// - `communication_message`: The message containing the details of the communication,
     ///   including the sender (`from`), the recipient (`to`), and the actual content of the message.
     fn forward_message(&mut self, communication_message: CommunicationMessage) {
+        let from = communication_message.from;
         let to = communication_message.to;
-        if self.registered_clients.contains(&to) {
-            let message: Message = Message::Server(ServerBody::ServerCommunication(
-                ServerCommunicationBody::MessageReceive(communication_message),
-            ));
-            self.send_message(message.clone(), to);
-        } else {
-            let message: Message = Message::Server(ServerBody::ServerCommunication(
-                ServerCommunicationBody::ErrWrongClientId,
-            ));
-            self.send_message(message.clone(), communication_message.from);
+        if self.registered_clients.contains(&from) {
+            if self.registered_clients.contains(&to) {
+                let message: Message = Message::Server(ServerBody::ServerCommunication(
+                    ServerCommunicationBody::MessageReceive(communication_message),
+                ));
+                self.send_message(message.clone(), to);
+            } else {
+                let message: Message = Message::Server(ServerBody::ServerCommunication(
+                    ServerCommunicationBody::ErrWrongClientId,
+                ));
+                self.send_message(message.clone(), communication_message.from);
+            }
         }
     }
 }
@@ -190,7 +193,7 @@ mod tests {
                 message: "I wanted to say hi!".to_string(),
             },
         )));
-
+        test_server_helper.server.registered_clients.insert(5);
         let response =
             test_server_helper.send_message_and_get_response(message.clone(), vec![5, 1], 5);
         if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrWrongClientId)) =
