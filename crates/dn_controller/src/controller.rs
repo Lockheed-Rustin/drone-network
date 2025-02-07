@@ -147,9 +147,11 @@ impl SimulationController {
     pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
         self.add_sender(a, b)?;
         self.add_sender(b, a)?;
-
-        self.topology.add_edge(a, b, ())?;
-        Some(())
+        // We need to return the OPPOSITE of what petgraph::graphmap::add_edge returns
+        match self.topology.add_edge(a, b, ()) {
+            None => Some(()),
+            Some(_) => None,
+        }
     }
 
     fn remove_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
