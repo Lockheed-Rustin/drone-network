@@ -5,7 +5,7 @@
 
 use crate::communication_server_code::communication_server::CommunicationServer;
 use dn_controller::ServerEvent;
-use wg_2024::packet::{Packet, PacketType};
+use wg_2024::packet::{Nack, NackType, Packet, PacketType};
 
 impl CommunicationServer {
     /// Processes an incoming packet and performs the corresponding action.
@@ -16,6 +16,7 @@ impl CommunicationServer {
     /// or responding to flood requests and responses.
     ///
     /// Before processing, this function notifies the simulation controller that a packet has been received.
+    /// It also checks that the server is the actual recipient of the packet.
     ///
     /// # Arguments
     /// * `packet` - The packet to be processed. It can be of various types including:
@@ -35,6 +36,27 @@ impl CommunicationServer {
         }
 
         if !self.check_routing(&packet) {
+            // the packet is not for me. Unexpected recipient nack is sent.
+            let mut hops = packet
+                .routing_header
+                .hops
+                .iter()
+                .cloned()
+                .take(packet.routing_header.hop_index + 1)
+                .rev()
+                .collect::<Vec<_>>();
+            hops[0] = self.id;
+
+            let nack = Nack {
+                fragment_index: 0,
+                nack_type: NackType::UnexpectedRecipient(self.id),
+            };
+            self.send_nack(nack, hops);
+            return;
+        }
+
+        if packet.routing_header.hops.last() != Some(&self.id) {
+            // The packet is for me, but I don't have to process it because I'm not the recipient
             return;
         }
 

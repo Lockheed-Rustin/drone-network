@@ -11,8 +11,7 @@ use wg_2024::packet::Packet;
 // TODO: nack tests to be checked.
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
-// TODO: sistema check-routing, se è per te e non sei finale ignora, se non è per te unexpected recipient
-
+// TODO: test unexpected recipient if packet is not for u, ignoring if packet is for u but u are not the recipient
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,
     pub(crate) controller_recv: Receiver<ServerCommand>,

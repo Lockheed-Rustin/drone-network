@@ -13,7 +13,7 @@
 
 use crate::communication_server_code::communication_server::CommunicationServer;
 use crate::communication_server_code::session_manager::SessionId;
-use wg_2024::network::SourceRoutingHeader;
+use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
 impl CommunicationServer {
@@ -41,8 +41,13 @@ impl CommunicationServer {
     ) {
         match nack.nack_type {
             NackType::ErrorInRouting(error_node) => {
-                self.network_topology
-                    .remove_edge(source_routing_header.hops[0], error_node);
+                if source_routing_header.hops[0] != error_node {
+                    self.network_topology
+                        .remove_edge(source_routing_header.hops[0], error_node);
+                } else {
+                    self.network_topology
+                        .remove_edge(source_routing_header.hops[1], error_node);
+                }
                 self.update_network_topology();
                 self.recover_fragment(session_id, nack.fragment_index);
             }
@@ -112,6 +117,28 @@ impl CommunicationServer {
             );
         }
     }
+
+    /// Sends a NACK packet over the network.
+    ///
+    /// This function wraps the given `Nack` into a `Packet` with a source routing header constructed from
+    /// the provided `hops` vector, assigns a new session ID using the session manager, and then forwards the
+    /// packet by invoking `send_packet`.
+    ///
+    /// The `hops` vector represents the intended routing path.
+    ///
+    /// # Arguments
+    ///
+    /// * `nack` - The negative acknowledgment data that indicates a transmission error or problem.
+    /// * `hops` - A vector of `NodeId` representing the routing path that the packet should follow.
+    pub(crate) fn send_nack(&mut self, nack: Nack, hops: Vec<NodeId>) {
+        let source_routing_header = SourceRoutingHeader { hop_index: 1, hops };
+        let packet = Packet {
+            routing_header: source_routing_header,
+            session_id: self.session_manager.get_and_increment_session_id_counter(),
+            pack_type: PacketType::Nack(nack),
+        };
+        self.send_packet(packet);
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +158,47 @@ mod tests {
             }),
             vec![2, 1],
         );
+        let pending_fragment = TestServerHelper::test_fragment(fragment_index, 100);
+        test_server_helper.server.session_manager.add_session(
+            session_id,
+            vec![pending_fragment],
+            6,
+        );
+
+        assert!(test_server_helper
+            .server
+            .network_topology
+            .contains_edge(2, 3));
+        test_server_helper.server.handle_packet(packet);
+        assert!(!test_server_helper
+            .server
+            .network_topology
+            .contains_edge(2, 3));
+
+        let flood_req = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("Expected flood_req because of update topology");
+        match flood_req.pack_type {
+            PacketType::FloodRequest(_) => {}
+            _ => panic!("Expected FloodRequest pack"),
+        }
+        let received_packet = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("No recover packet received on channel 3");
+        assert_eq!(received_packet.session_id, session_id);
+
+        test_server_helper.server.network_topology.add_edge(2, 3);
+        let (packet, session_id) = TestServerHelper::test_received_packet(
+            PacketType::Nack(Nack {
+                fragment_index,
+                nack_type: NackType::ErrorInRouting(3),
+            }),
+            vec![3, 2, 1], // it could happen if a drone is crashing and has fragments to process
+        );
+        // error node == hops[0]
+
         let pending_fragment = TestServerHelper::test_fragment(fragment_index, 100);
         test_server_helper.server.session_manager.add_session(
             session_id,
