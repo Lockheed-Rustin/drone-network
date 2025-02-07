@@ -31,7 +31,7 @@ impl CommunicationServer {
         session_id: SessionId,
         arrived_packet_path: Vec<NodeId>,
     ) {
-        self.send_ack(f.fragment_index, sender_id, session_id, arrived_packet_path);
+        self.send_ack(f.fragment_index, session_id, arrived_packet_path);
         if let Some(message) = self.assembler.handle_fragment(&f, sender_id, session_id) {
             self.handle_message(message, sender_id);
         }
@@ -65,34 +65,20 @@ impl CommunicationServer {
     ///
     /// # Arguments
     /// * `fragment_index` - The fragment_index of the fragment for which to send an acknowledgment.
-    /// * `to` - The recipient node ID.
     /// * `session_id` - The session ID associated with the message.
     /// * `arrived_packet_path` - The path of the incoming packet
-    ///
-    /// # Panics
-    /// * This function may panic if the node `to` is not a Client, because the server should ignore
-    ///   messages that are not from clients
     pub(crate) fn send_ack(
         &mut self,
         fragment_index: u64,
-        to: NodeId,
         session_id: SessionId,
         arrived_packet_path: Vec<NodeId>,
     ) {
         let ack = PacketType::Ack(Ack { fragment_index });
-        let mut hops = self
-            .network_topology
-            .source_routing(self.id, to)
-            .expect("Error in routing");
-
-        if hops.is_empty() {
-            // I don't know the path to `to` yet, so I'm going to use the reversed path of the fragment
-            hops = arrived_packet_path
-                .iter()
-                .rev()
-                .cloned()
-                .collect::<Vec<_>>();
-        }
+        let hops = arrived_packet_path
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>();
 
         let packet = Packet {
             pack_type: ack,
@@ -217,7 +203,7 @@ mod tests {
         let fragment: Fragment = TestServerHelper::test_fragment(13, 50);
         test_server_helper
             .server
-            .send_ack(fragment.fragment_index, to, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, session_id, vec![6, 3, 1]);
 
         let ack = test_server_helper
             .packet_recv_3
@@ -235,7 +221,7 @@ mod tests {
         // the dest is not in the topology but `send_nack` can use the reversed path in these cases
         test_server_helper
             .server
-            .send_ack(fragment.fragment_index, to, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, session_id, vec![6, 3, 1]);
         let ack = test_server_helper
             .packet_recv_3
             .try_recv()
