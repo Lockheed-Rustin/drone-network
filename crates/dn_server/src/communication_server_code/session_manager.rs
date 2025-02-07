@@ -182,6 +182,21 @@ impl SessionManager {
     ) -> Option<Vec<(FragmentIndex, SessionId)>> {
         self.waiting_fragments.remove(dest)
     }
+
+    /// Retrieves the destination node associated with a pending session.
+    ///
+    /// This function queries the internal mapping of pending sessions to obtain a reference to the
+    /// destination node ID for the provided session ID. It returns `Some(&NodeId)` if a destination
+    /// is found, or `None` if the session ID is not present in the map.
+    ///
+    /// # Arguments
+    /// * `session_id` - A reference to the session identifier.
+    ///
+    /// # Returns
+    /// * `Option<&NodeId>` - A reference to the destination node ID if it exists, otherwise `None`.
+    pub fn get_pending_sessions_destination(&self, session_id: &SessionId) -> Option<&NodeId> {
+        self.pending_sessions_destination.get(session_id)
+    }
 }
 
 impl Default for SessionManager {

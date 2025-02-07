@@ -58,8 +58,11 @@ impl CommunicationServer {
             NackType::Dropped => {
                 self.network_topology
                     .update_estimated_pdr(source_routing_header.hops[0], true);
-                self.network_topology
-                    .remove_path(&source_routing_header.hops[0]);
+                let dest_id = self
+                    .session_manager
+                    .get_pending_sessions_destination(&session_id)
+                    .unwrap(); // if a packet was dropped, I'm sure that there is an entry in the HashMap
+                self.network_topology.remove_path(dest_id);
                 self.update_network_topology();
                 self.recover_fragment(session_id, nack.fragment_index);
             }
