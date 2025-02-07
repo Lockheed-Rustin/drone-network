@@ -12,7 +12,7 @@ use wg_2024::packet::Packet;
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
 
-// TODO: IMPORTANTE non puoi fare mandare ad un client non registrato un messaggio. Vanno modificati i messaggi
+// TODO: MESSAGGIO ERRORE E CONFERMA
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,
     pub(crate) controller_recv: Receiver<ServerCommand>,
