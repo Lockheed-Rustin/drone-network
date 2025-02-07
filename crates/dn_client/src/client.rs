@@ -233,7 +233,7 @@ impl Client {
 
         let mut pkt_not_sended = false;
         for fragment in fragments {
-            if !self.send_fragment(dest, fragment) {
+            if !self.send_fragment(dest, fragment, self.session_id) {
                 pkt_not_sended = true;
             }
         }
@@ -266,16 +266,16 @@ impl Client {
         self.source_routing.clear_topology();
     }
 
-    fn send_fragment(&mut self, dest: NodeId, fragment: Fragment) -> bool {
+    fn send_fragment(&mut self, dest: NodeId, fragment: Fragment, session_id: u64) -> bool {
         if let Some(path) = self.source_routing.get_path(dest) {
-            let packet= Packet::new_fragment(SourceRoutingHeader::initialize(path.clone()), self.session_id, fragment);
+            let packet= Packet::new_fragment(SourceRoutingHeader::initialize(path.clone()), session_id, fragment);
             self.send_packet(packet);
 
             true
         }
         else {
             let unsendeds = self.unsendable_fragments.entry(dest).or_default();
-            unsendeds.push((self.session_id, fragment));
+            unsendeds.push((session_id, fragment));
 
             false
         }
@@ -377,7 +377,7 @@ impl Client {
         if let Some((dest, pend_fragment)) = self.pending_sessions.get(&session_id) {
             if let Some(fragment) = pend_fragment.get(&nack.fragment_index) {
                 //nack is for a "not-acked" fragment
-                self.send_fragment(*dest, fragment.clone());
+                self.send_fragment(*dest, fragment.clone(), session_id);
             }
         }
     }

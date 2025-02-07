@@ -306,6 +306,8 @@ impl ClientRouting {
                 drone_info.inc_correct_traveled();
             }
         }
+
+        self.compute_routing_paths();
     }
 
 
