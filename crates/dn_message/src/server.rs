@@ -29,5 +29,5 @@ pub enum ServerCommunicationBody {
     MessageReceive(CommunicationMessage),
     ErrWrongClientId,
     ErrNotRegistered,
-    RegistrationSuccess
+    RegistrationSuccess,
 }
