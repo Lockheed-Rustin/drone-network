@@ -12,7 +12,7 @@
 //!                           retransmitting it or re-initiating the routing process.
 
 use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::SessionId;
+use crate::communication_server_code::session_manager::{FragmentIndex, SessionId};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
@@ -48,8 +48,7 @@ impl CommunicationServer {
                     self.network_topology
                         .remove_edge(source_routing_header.hops[1], error_node);
                 }
-                self.update_network_topology();
-                self.recover_fragment(session_id, nack.fragment_index);
+                self.recover_after_nack(session_id, nack.fragment_index);
             }
             NackType::DestinationIsDrone => {
                 self.network_topology
@@ -58,19 +57,37 @@ impl CommunicationServer {
             NackType::Dropped => {
                 self.network_topology
                     .update_estimated_pdr(source_routing_header.hops[0], true);
-                let dest_id = self
-                    .session_manager
-                    .get_pending_sessions_destination(&session_id)
-                    .unwrap(); // if a packet was dropped, I'm sure that there is an entry in the HashMap
-                self.network_topology.remove_path(dest_id);
-                self.update_network_topology();
-                self.recover_fragment(session_id, nack.fragment_index);
+                self.recover_after_nack(session_id, nack.fragment_index);
             }
             NackType::UnexpectedRecipient(_) => {
-                self.update_network_topology();
-                self.recover_fragment(session_id, nack.fragment_index);
+                self.recover_after_nack(session_id, nack.fragment_index);
             }
         }
+    }
+
+    /// Recovers a dropped message fragment after a NACK has been received.
+    ///
+    /// This function retrieves the destination node ID associated with the given session from the
+    /// session manager (assuming that an entry exists in the pending sessions destination map).
+    /// Then, it removes the saved routing path for that destination from the network topology,
+    /// updates the topology, and finally attempts to recover the dropped fragment by calling
+    /// `recover_fragment`.
+    ///
+    /// # Arguments
+    /// * `session_id` - The identifier of the session in which the fragment was dropped.
+    /// * `fragment_index` - The index of the fragment that needs to be recovered.
+    ///
+    /// # Panics
+    /// This function will panic if there is no destination associated with the session in the session manager,
+    /// as indicated by the use of `unwrap()` on the result of `get_pending_sessions_destination`.
+    fn recover_after_nack(&mut self, session_id: SessionId, fragment_index: FragmentIndex) {
+        let dest_id = self
+            .session_manager
+            .get_pending_sessions_destination(&session_id)
+            .unwrap(); // if a packet was dropped, I'm sure that there is an entry in the HashMap
+        self.network_topology.remove_path(dest_id);
+        self.update_network_topology();
+        self.recover_fragment(session_id, fragment_index);
     }
 
     /// Attempts to recover a dropped message fragment and retransmit it.
