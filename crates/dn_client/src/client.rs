@@ -181,6 +181,8 @@ impl Client {
 
     //---------- add/rmv sender from client ----------//
     fn remove_sender(&mut self, n: NodeId) {
+        if self.packet_send.len() < 2 {return;}
+
         self.packet_send.remove(&n);
         self.source_routing.remove_channel_to_neighbor(n);
     }
@@ -362,6 +364,8 @@ impl Client {
         match nack.nack_type {
             NackType::ErrorInRouting(node) => {
                 self.source_routing.correct_exchanged_with(node, &header.hops);
+
+                self.send_flood_request();
 
                 self.source_routing.remove_node(node);
             }
