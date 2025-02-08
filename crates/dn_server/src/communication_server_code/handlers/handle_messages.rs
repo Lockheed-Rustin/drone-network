@@ -198,7 +198,6 @@ mod tests {
     fn test_send_ack() {
         let mut test_server_helper = TestServerHelper::new();
 
-        let to = 6;
         let session_id = 111;
         let fragment: Fragment = TestServerHelper::test_fragment(13, 50);
         test_server_helper

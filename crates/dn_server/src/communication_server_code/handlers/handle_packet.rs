@@ -69,7 +69,7 @@ impl CommunicationServer {
     /// The function compares the current hop index in the routing header with the server's ID.
     /// - If they match, it checks if the server is the meant recipient.
     /// - If they don't match, the function return false because the packet was not for the server to
-    /// process. In this case, it also sends an Unexpected Recipient nack to the sender.
+    ///   process. In this case, it also sends an Unexpected Recipient nack to the sender.
     ///
     /// # Arguments
     /// * `packet` - The packet whose routing information is to be checked.

@@ -48,7 +48,7 @@ impl CommunicationServer {
                     self.network_topology
                         .remove_edge(source_routing_header.hops[1], error_node);
                 }
-                self.recover_after_nack(session_id, nack.fragment_index);
+                self.recover_after_nack(session_id, nack.fragment_index, true);
             }
             NackType::DestinationIsDrone => {
                 self.network_topology
@@ -57,10 +57,25 @@ impl CommunicationServer {
             NackType::Dropped => {
                 self.network_topology
                     .update_estimated_pdr(source_routing_header.hops[0], true);
-                self.recover_after_nack(session_id, nack.fragment_index);
+
+                if self
+                    .session_manager
+                    .already_dropped
+                    .contains(&(session_id, nack.fragment_index))
+                {
+                    self.session_manager
+                        .already_dropped
+                        .remove(&(session_id, nack.fragment_index));
+                    self.recover_after_nack(session_id, nack.fragment_index, true);
+                } else {
+                    self.session_manager
+                        .already_dropped
+                        .insert((session_id, nack.fragment_index));
+                    self.recover_after_nack(session_id, nack.fragment_index, false);
+                }
             }
             NackType::UnexpectedRecipient(_) => {
-                self.recover_after_nack(session_id, nack.fragment_index);
+                self.recover_after_nack(session_id, nack.fragment_index, true);
             }
         }
     }
@@ -76,17 +91,25 @@ impl CommunicationServer {
     /// # Arguments
     /// * `session_id` - The identifier of the session in which the fragment was dropped.
     /// * `fragment_index` - The index of the fragment that needs to be recovered.
+    /// * `send_flood` - True if the caller want to send a flood request to update the topology.
     ///
     /// # Panics
     /// This function will panic if there is no destination associated with the session in the session manager,
     /// as indicated by the use of `unwrap()` on the result of `get_pending_sessions_destination`.
-    fn recover_after_nack(&mut self, session_id: SessionId, fragment_index: FragmentIndex) {
+    fn recover_after_nack(
+        &mut self,
+        session_id: SessionId,
+        fragment_index: FragmentIndex,
+        send_flood: bool,
+    ) {
         let dest_id = self
             .session_manager
             .get_pending_sessions_destination(&session_id)
             .unwrap(); // if a packet was dropped, I'm sure that there is an entry in the HashMap
         self.network_topology.remove_path(dest_id);
-        self.update_network_topology();
+        if send_flood {
+            self.update_network_topology();
+        }
         self.recover_fragment(session_id, fragment_index);
     }
 
@@ -292,11 +315,12 @@ mod tests {
             .session_manager
             .add_session(session_id, vec![fragment], 6);
 
-        test_server_helper.server.handle_packet(packet);
-        let _received_flood_req = test_server_helper
-            .packet_recv_3
-            .try_recv()
-            .expect("No recover packet received on channel 3");
+        test_server_helper.server.handle_packet(packet.clone());
+        assert!(test_server_helper
+            .server
+            .session_manager
+            .already_dropped
+            .contains(&(session_id, fragment_index)));
         let received_packet = test_server_helper
             .packet_recv_3
             .try_recv()
@@ -311,6 +335,18 @@ mod tests {
                 .unwrap(),
             40
         );
+
+        test_server_helper.server.handle_packet(packet);
+        assert!(!test_server_helper
+            .server
+            .session_manager
+            .already_dropped
+            .contains(&(session_id, fragment_index)));
+
+        let _received_flood_req = test_server_helper
+            .packet_recv_3
+            .try_recv()
+            .expect("No recover packet received on channel 3");
 
         // UNEXPECTED RECIPIENT
         // nothing to do
