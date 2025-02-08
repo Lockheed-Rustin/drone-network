@@ -1,7 +1,7 @@
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
 use dn_message::{Assembler, ClientBody, Message};
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
 use wg_2024::{network::NodeId, packet::Packet};
@@ -28,6 +28,7 @@ pub struct Client {
     //      following structures manage sent messages
     pending_sessions: HashMap<u64, (NodeId, PendingFragments)>, // (dest, session_id) -> (fragment_index -> fragment)
     unsendable_fragments: HashMap<NodeId, Vec<(u64, Fragment)>>, // dest -> Vec<(session_id, fragment)>
+    already_dropped: HashSet<(u64, u64)>,
 }
 
 impl Client {
@@ -56,6 +57,7 @@ impl Client {
             source_routing,
             pending_sessions: HashMap::new(),
             unsendable_fragments: HashMap::new(),
+            already_dropped: HashSet::new(),
         }
     }
 
@@ -257,11 +259,11 @@ impl Client {
             sender
                 .send(flood_request_packet.clone())
                 .expect("Error in send");
-        }
 
-        self.controller_send
-            .send(ClientEvent::PacketSent(flood_request_packet))
-            .expect("Error in controller_send");
+            self.controller_send
+                .send(ClientEvent::PacketSent(flood_request_packet.clone()))
+                .expect("Error in controller_send");
+        }
 
         self.source_routing.clear_topology();
     }
@@ -308,17 +310,7 @@ impl Client {
             self.source_routing.correct_exchanged_with(sender, &header.hops);
         }
 
-        let &sender = header.hops.first().expect("Unreachable"); // always have first since path.len() >= 2
-
-        if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
-            self.controller_send
-                .send(ClientEvent::MessageAssembled{
-                    body: server_body,
-                    from: sender,
-                    to: self.id,
-                })
-                .expect("Error in controller_send");
-        }
+        let &sender = header.hops.first().unwrap(); // always have first since path.len() >= 2
 
         let ack = Packet::new_ack(
             SourceRoutingHeader::initialize(
@@ -329,6 +321,16 @@ impl Client {
         );
 
         self.send_packet(ack);
+
+        if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
+            self.controller_send
+                .send(ClientEvent::MessageAssembled{
+                    body: server_body,
+                    from: sender,
+                    to: self.id,
+                })
+                .expect("Error in controller_send");
+        }
     }
 
     fn handle_flood_response(&mut self, flood_response: &FloodResponse) {
@@ -362,12 +364,21 @@ impl Client {
             NackType::DestinationIsDrone => {
                 self.source_routing.correct_exchanged_with(header.hops[0], &header.hops);
 
-                //TODO: migliorabile -> possible inviare meno flood request?
                 self.send_flood_request();
                 //in this scenario, fragment will be added to the unsendeds fragments
             }
             NackType::Dropped => {
                 self.source_routing.inc_packet_dropped(&header.hops);
+
+                if self.already_dropped.contains(&(session_id, nack.fragment_index)) {
+                    self.already_dropped.remove(&(session_id, nack.fragment_index));
+
+                    self.send_flood_request();
+                }
+                else {
+                    self.already_dropped.insert((session_id, nack.fragment_index));
+                }
+
             }
             NackType::UnexpectedRecipient(node) => {
                 self.source_routing.correct_exchanged_with(node, &header.hops);
