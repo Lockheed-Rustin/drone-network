@@ -1,15 +1,13 @@
+use dn_message::{ClientBody, ServerType};
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
-use dn_message::{ClientBody, ServerType};
 
 pub enum ServerTypeError {
     ServerTypeUnknown,
     WrongServerType,
 }
 
-
 pub struct MessageManager {
-
     communication_servers: HashMap<NodeId, bool>, //server_id -> already logged
     content_servers: HashSet<NodeId>,
 
@@ -22,8 +20,6 @@ impl Default for MessageManager {
     }
 }
 
-
-
 impl MessageManager {
     #[must_use]
     pub fn new() -> Self {
@@ -31,40 +27,35 @@ impl MessageManager {
             //pending_sessions: HashMap::new(),
             //unsendable_fragments: HashMap::new(),
             //already_dropped: HashSet::new(),
-
             communication_servers: HashMap::new(),
             content_servers: HashSet::new(),
             unsent_messages: HashMap::new(),
         }
     }
 
-
     #[must_use]
-    pub fn is_invalid_send(&self, client_body: &ClientBody, dest: NodeId) -> Option<ServerTypeError> {
+    pub fn is_invalid_send(
+        &self,
+        client_body: &ClientBody,
+        dest: NodeId,
+    ) -> Option<ServerTypeError> {
         match client_body {
-            ClientBody::ReqServerType => {
-                None
-            }
+            ClientBody::ReqServerType => None,
             ClientBody::ClientContent(_) => {
                 if self.content_servers.contains(&dest) {
                     None
-                }
-                else if self.communication_servers.contains_key(&dest) {
+                } else if self.communication_servers.contains_key(&dest) {
                     Some(ServerTypeError::WrongServerType)
-                }
-                else {
+                } else {
                     Some(ServerTypeError::ServerTypeUnknown)
                 }
             }
             ClientBody::ClientCommunication(_) => {
-
                 if self.communication_servers.contains_key(&dest) {
                     None
-                }
-                else if self.content_servers.contains(&dest) {
+                } else if self.content_servers.contains(&dest) {
                     Some(ServerTypeError::WrongServerType)
-                }
-                else {
+                } else {
                     Some(ServerTypeError::ServerTypeUnknown)
                 }
             }
