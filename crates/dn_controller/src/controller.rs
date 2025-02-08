@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use dn_message::ClientBody;
 use petgraph::algo::connected_components;
 use petgraph::prelude::UnGraphMap;
+use rayon::ThreadPool;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use wg_2024::packet::Packet;
@@ -50,6 +51,17 @@ impl NodeType {
     }
 }
 
+pub struct SimulationControllerOptions {
+    pub nodes: HashMap<NodeId, Node>,
+    pub drone_recv: Receiver<DroneEvent>,
+    pub server_recv: Receiver<ServerEvent>,
+    pub client_recv: Receiver<ClientEvent>,
+    pub topology: Topology,
+    pub drone_pool: ThreadPool,
+    pub client_pool: ThreadPool,
+    pub server_pool: ThreadPool,
+}
+
 pub struct SimulationController {
     nodes: HashMap<NodeId, Node>,
 
@@ -59,25 +71,25 @@ pub struct SimulationController {
 
     topology: Topology,
 
-    _pool: rayon::ThreadPool,
+    #[allow(unused)]
+    drone_pool: ThreadPool,
+    #[allow(unused)]
+    client_pool: ThreadPool,
+    #[allow(unused)]
+    server_pool: ThreadPool,
 }
 
 impl SimulationController {
-    pub fn new(
-        nodes: HashMap<NodeId, Node>,
-        drone_recv: Receiver<DroneEvent>,
-        server_recv: Receiver<ServerEvent>,
-        client_recv: Receiver<ClientEvent>,
-        topology: Topology,
-        pool: rayon::ThreadPool,
-    ) -> Self {
+    pub fn new(opt: SimulationControllerOptions) -> Self {
         Self {
-            nodes,
-            drone_recv,
-            server_recv,
-            client_recv,
-            topology,
-            _pool: pool,
+            nodes: opt.nodes,
+            drone_recv: opt.drone_recv,
+            server_recv: opt.server_recv,
+            client_recv: opt.client_recv,
+            topology: opt.topology,
+            drone_pool: opt.drone_pool,
+            client_pool: opt.client_pool,
+            server_pool: opt.server_pool,
         }
     }
 
