@@ -255,6 +255,8 @@ impl Client {
         self.flood_id += 1;
         self.session_id += 1;
 
+        self.already_dropped.clear();
+
         for (_, sender) in self.packet_send.iter() {
             sender
                 .send(flood_request_packet.clone())
@@ -342,7 +344,9 @@ impl Client {
     fn handle_ack(&mut self, ack: &Ack, header: &SourceRoutingHeader, session_id: u64) {
         if header.hops.len() < 2 {return;}
 
-        let &server = header.hops.first().expect("Unreachable");
+        let &server = header.hops.first().unwrap();
+
+        self.already_dropped.remove(&(session_id, ack.fragment_index));
 
         self.source_routing.correct_send_to(server);
 
@@ -371,8 +375,6 @@ impl Client {
                 self.source_routing.inc_packet_dropped(&header.hops);
 
                 if self.already_dropped.contains(&(session_id, nack.fragment_index)) {
-                    self.already_dropped.remove(&(session_id, nack.fragment_index));
-
                     self.send_flood_request();
                 }
                 else {
