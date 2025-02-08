@@ -1,4 +1,4 @@
-use crate::fair_drones::{drone_from_opt, drones_from_opts, DroneOptions};
+use crate::fair_drones::{fair_drones, fair_drones_adapter, DroneOptions, FairDrones};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{
@@ -39,24 +39,20 @@ pub enum NetworkInitError {
 }
 
 pub fn init_network(config: &Config) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fn(config, drones_from_opts)
+    init_network_with_fair_drones(config, fair_drones())
 }
 
 pub fn init_network_with_drone<D: Drone + 'static>(
     config: &Config,
+    group_name: String,
 ) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fn(config, |opts| {
-        opts.into_iter().map(drone_from_opt::<D>).collect()
-    })
+    init_network_with_fair_drones(config, fair_drones_adapter::<D>(group_name))
 }
 
-fn init_network_with_fn<F>(
+fn init_network_with_fair_drones(
     config: &Config,
-    drones_from_opts: F,
-) -> Result<SimulationController, NetworkInitError>
-where
-    F: FnOnce(Vec<DroneOptions>) -> Vec<Box<dyn Drone>>,
-{
+    drones: FairDrones,
+) -> Result<SimulationController, NetworkInitError> {
     let topology = init_topology(config)?;
 
     let mut nodes = HashMap::new();
@@ -80,8 +76,7 @@ where
     let client_pool = ThreadPoolBuilder::new().build().unwrap();
     let server_pool = ThreadPoolBuilder::new().build().unwrap();
 
-    let drone_opts = drone_options(config, &mut nodes, &packets, drone_send);
-    let drones = drones_from_opts(drone_opts);
+    let drones = drone_options(config, &mut nodes, &packets, drone_send, drones);
     let clients = client_options(config, &mut nodes, &packets, client_send);
     let servers = server_options(config, &mut nodes, &packets, server_send);
 
@@ -123,11 +118,13 @@ fn drone_options(
     nodes: &mut HashMap<NodeId, Node>,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
     controller_send: Sender<DroneEvent>,
-) -> Vec<DroneOptions> {
+    drones: FairDrones,
+) -> Vec<Box<dyn Drone>> {
     config
         .drone
         .iter()
-        .map(|drone| {
+        .enumerate()
+        .map(|(i, drone)| {
             // controller
             let (drone_send, controller_recv) = unbounded();
             nodes.insert(
@@ -137,6 +134,7 @@ fn drone_options(
                     node_type: ControllerNodeType::Drone {
                         sender: drone_send,
                         pdr: drone.pdr,
+                        group_name: drones.get(i).group_name().to_string(),
                     },
                 },
             );
@@ -147,14 +145,14 @@ fn drone_options(
             let id = drone.id;
             let pdr = drone.pdr;
 
-            DroneOptions {
+            drones.get(i).new(DroneOptions {
                 id,
                 controller_send,
                 controller_recv,
                 packet_recv,
                 packet_send,
                 pdr,
-            }
+            })
         })
         .collect()
 }

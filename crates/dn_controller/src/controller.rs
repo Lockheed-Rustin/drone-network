@@ -25,6 +25,7 @@ pub enum NodeType {
     Drone {
         sender: Sender<DroneCommand>,
         pdr: f32,
+        group_name: String,
     },
     Client {
         sender: Sender<ClientCommand>,
@@ -200,7 +201,7 @@ impl SimulationController {
     pub fn set_pdr(&mut self, id: NodeId, new_pdr: f32) -> Option<()> {
         let new_pdr = new_pdr.clamp(0.0, 1.0);
         match &mut self.nodes.get_mut(&id)?.node_type {
-            NodeType::Drone { sender, pdr } => {
+            NodeType::Drone { sender, pdr, .. } => {
                 sender.send(DroneCommand::SetPacketDropRate(new_pdr)).ok();
                 *pdr = new_pdr;
                 Some(())
@@ -212,6 +213,13 @@ impl SimulationController {
     pub fn get_pdr(&self, drone_id: NodeId) -> Option<f32> {
         match &self.nodes.get(&drone_id)?.node_type {
             NodeType::Drone { pdr, .. } => Some(*pdr),
+            _ => None,
+        }
+    }
+
+    pub fn get_group_name(&self, drone_id: NodeId) -> Option<&str> {
+        match &self.nodes.get(&drone_id)?.node_type {
+            NodeType::Drone { group_name, .. } => Some(&group_name),
             _ => None,
         }
     }
@@ -291,7 +299,7 @@ impl SimulationController {
 
 impl Debug for SimulationController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{:#?}", self.topology)
+        write!(f, "{:#?}", self.nodes)
     }
 }
 
