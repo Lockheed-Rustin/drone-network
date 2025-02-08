@@ -9,7 +9,10 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use dn_message::ServerBody::{RespServerType, ServerCommunication};
 use dn_message::ServerCommunicationBody::RespClientList;
-use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
+use dn_message::{
+    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
+    ServerCommunicationBody, ServerType,
+};
 use wg_2024::network::NodeId;
 
 impl CommunicationServer {

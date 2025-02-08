@@ -42,7 +42,12 @@ impl CommunicationServer {
         let sender_id = packet.routing_header.hops[0];
         match packet.pack_type {
             PacketType::MsgFragment(f) => {
-                self.handle_fragment(&f, sender_id, packet.session_id, &packet.routing_header.hops);
+                self.handle_fragment(
+                    &f,
+                    sender_id,
+                    packet.session_id,
+                    &packet.routing_header.hops,
+                );
             }
             PacketType::Nack(nack) => {
                 self.handle_nack(&nack, packet.session_id, &packet.routing_header);

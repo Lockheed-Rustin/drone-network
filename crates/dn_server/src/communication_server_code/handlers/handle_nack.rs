@@ -60,14 +60,12 @@ impl CommunicationServer {
 
                 if self
                     .session_manager
-                    .already_dropped
-                    .contains(&(session_id, nack.fragment_index))
+                    .already_dropped(session_id, nack.fragment_index)
                 {
                     self.recover_after_nack(session_id, nack.fragment_index, true);
                 } else {
                     self.session_manager
-                        .already_dropped
-                        .insert((session_id, nack.fragment_index));
+                        .already_dropped_insert(session_id, nack.fragment_index);
                     self.recover_after_nack(session_id, nack.fragment_index, false);
                 }
             }
@@ -316,8 +314,7 @@ mod tests {
         assert!(test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         let received_packet = test_server_helper
             .packet_recv_3
             .try_recv()
@@ -337,8 +334,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
 
         let _received_flood_req = test_server_helper
             .packet_recv_3
@@ -354,8 +350,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         // UNEXPECTED RECIPIENT
         // nothing to do
     }
