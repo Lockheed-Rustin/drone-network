@@ -7,12 +7,9 @@
 //! - **`forward_message`**: forwards a communication message to the intended recipient if they are registered.
 
 use crate::communication_server_code::communication_server::CommunicationServer;
-use dn_message::ServerBody::RespServerType;
+use dn_message::ServerBody::{RespServerType, ServerCommunication};
 use dn_message::ServerCommunicationBody::RespClientList;
-use dn_message::{
-    ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody,
-    ServerCommunicationBody, ServerType,
-};
+use dn_message::{ClientBody, ClientCommunicationBody, CommunicationMessage, Message, ServerBody, ServerCommunicationBody, ServerType};
 use wg_2024::network::NodeId;
 
 impl CommunicationServer {
@@ -21,7 +18,8 @@ impl CommunicationServer {
     /// This function processes different types of requests sent by a client and delegates
     /// them to the appropriate handler function. It determines the request type and
     /// performs the corresponding action, such as sending the server type, handling client
-    /// communication, or ignoring messages intended for a content server.
+    /// communication, or sending an error messages to the client for messages intended for a
+    /// content server.
     ///
     /// # Arguments
     /// * `client_body` - The request body received from the client.
@@ -34,7 +32,10 @@ impl CommunicationServer {
             ClientBody::ClientCommunication(comm_body) => {
                 self.handle_client_communication_body(comm_body, sender_id);
             }
-            ClientBody::ClientContent(_) => {} // ignoring messages for the content server
+            ClientBody::ClientContent(_) => {
+                let message = Message::Server(ServerBody::ErrUnsupportedRequestType);
+                self.send_message(message, sender_id);
+            }
         }
     }
 
@@ -81,11 +82,17 @@ impl CommunicationServer {
     /// have connected.
     /// The client ID is inserted into the internal collection of registered clients, making it
     /// available for further communication and message forwarding.
+    /// This function also sends a message to the client communicating that the registration was
+    /// successful.
     ///
     /// ### Arguments:
     /// - `client_id`: The unique identifier of the client to be registered.
     fn register_client(&mut self, client_id: NodeId) {
         self.registered_clients.insert(client_id);
+        let message: Message = Message::Server(ServerCommunication(
+            ServerCommunicationBody::RegistrationSuccess,
+        ));
+        self.send_message(message, client_id);
     }
 
     /// Sends a list of all registered clients to the requesting client.
@@ -98,16 +105,19 @@ impl CommunicationServer {
     /// - `client_id`: The unique identifier of the client who has requested the list of registered clients.
     fn registered_clients_list(&mut self, client_id: NodeId) {
         let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
-        let message = Message::Server(ServerBody::ServerCommunication(RespClientList(client_list)));
+        let message = Message::Server(ServerCommunication(RespClientList(client_list)));
         self.send_message(message, client_id);
     }
 
     /// Forwards a communication message to the intended recipient if they are registered.
     ///
-    /// This function checks whether the recipient of the communication message is a registered client.
-    /// If the recipient is registered, the server forwards the message to the recipient.
-    /// If the recipient is not registered, an error message indicating that the client ID is
-    /// incorrect is sent back to the sender.
+    /// This function checks:
+    /// - If the client `from` is not registered, an error message ErrNotRegistered is sent back.
+    /// - If it is registered then: this function checks whether the recipient of the communication
+    ///   message is a registered client.
+    ///   - If the recipient is registered, the server forwards the message to the recipient.
+    ///   - If the recipient is not registered, an error message indicating that the client ID is
+    ///     incorrect is sent back to the sender.
     ///
     /// ### Arguments:
     /// - `communication_message`: The message containing the details of the communication,
@@ -117,16 +127,21 @@ impl CommunicationServer {
         let to = communication_message.to;
         if self.registered_clients.contains(&from) {
             if self.registered_clients.contains(&to) {
-                let message: Message = Message::Server(ServerBody::ServerCommunication(
+                let message: Message = Message::Server(ServerCommunication(
                     ServerCommunicationBody::MessageReceive(communication_message),
                 ));
                 self.send_message(message.clone(), to);
             } else {
-                let message: Message = Message::Server(ServerBody::ServerCommunication(
+                let message: Message = Message::Server(ServerCommunication(
                     ServerCommunicationBody::ErrWrongClientId,
                 ));
                 self.send_message(message.clone(), communication_message.from);
             }
+        } else {
+            let message: Message = Message::Server(ServerCommunication(
+                ServerCommunicationBody::ErrNotRegistered,
+            ));
+            self.send_message(message.clone(), from);
         }
     }
 }
@@ -139,6 +154,7 @@ mod tests {
     use dn_message::ServerBody::ServerCommunication;
     use dn_message::ServerCommunicationBody::MessageReceive;
     use dn_message::{ClientCommunicationBody, Message};
+    use wg_2024::packet::PacketType;
 
     #[test]
     fn test_send_server_type() {
@@ -166,6 +182,23 @@ mod tests {
         test_server_helper.register_client_6();
 
         assert!(test_server_helper.server.registered_clients.contains(&6));
+
+        let resp = test_server_helper.packet_recv_3.try_recv().unwrap();
+
+        if let PacketType::MsgFragment(f) = resp.pack_type {
+            let message = test_server_helper
+                .assembler
+                .handle_fragment(&f, 1, 12)
+                .unwrap();
+            if let Message::Server(ServerCommunication(
+                ServerCommunicationBody::RegistrationSuccess,
+            )) = message
+            {
+                assert!(true);
+                return;
+            }
+        }
+        assert!(false);
     }
 
     #[test]
@@ -193,6 +226,15 @@ mod tests {
                 message: "I wanted to say hi!".to_string(),
             },
         )));
+        let response =
+            test_server_helper.send_message_and_get_response(message.clone(), vec![5, 1], 5);
+        if let Message::Server(ServerCommunication(ServerCommunicationBody::ErrNotRegistered)) =
+            response
+        {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
         test_server_helper.server.registered_clients.insert(5);
         let response =
             test_server_helper.send_message_and_get_response(message.clone(), vec![5, 1], 5);
