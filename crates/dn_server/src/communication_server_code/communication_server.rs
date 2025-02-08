@@ -31,7 +31,7 @@ pub struct CommunicationServer {
 }
 
 impl CommunicationServer {
-    pub fn new(
+    #[must_use] pub fn new(
         controller_send: Sender<ServerEvent>,
         controller_recv: Receiver<ServerCommand>,
         packet_send: HashMap<NodeId, Sender<Packet>>,

@@ -104,7 +104,7 @@ impl CommunicationServer {
     /// ### Arguments:
     /// - `client_id`: The unique identifier of the client who has requested the list of registered clients.
     fn registered_clients_list(&mut self, client_id: NodeId) {
-        let client_list: Vec<NodeId> = self.registered_clients.iter().cloned().collect();
+        let client_list: Vec<NodeId> = self.registered_clients.iter().copied().collect();
         let message = Message::Server(ServerCommunication(RespClientList(client_list)));
         self.send_message(message, client_id);
     }
@@ -112,7 +112,7 @@ impl CommunicationServer {
     /// Forwards a communication message to the intended recipient if they are registered.
     ///
     /// This function checks:
-    /// - If the client `from` is not registered, an error message ErrNotRegistered is sent back.
+    /// - If the client `from` is not registered, an error message `ErrNotRegistered` is sent back.
     /// - If it is registered then: this function checks whether the recipient of the communication
     ///   message is a registered client.
     ///   - If the recipient is registered, the server forwards the message to the recipient.

@@ -49,8 +49,8 @@ impl PendingMessagesQueue {
     ///
     /// # Returns
     /// A vector of messages if there were pending messages, or `None` if there were none.
-    pub fn take_pending_messages(&mut self, node_id: &NodeId) -> Option<Vec<Message>> {
-        self.pending_messages.remove(node_id)
+    pub fn take_pending_messages(&mut self, node_id: NodeId) -> Option<Vec<Message>> {
+        self.pending_messages.remove(&node_id)
     }
 
     /// Checks if there are pending messages for a given node.
@@ -60,8 +60,8 @@ impl PendingMessagesQueue {
     ///
     /// # Returns
     /// `true` if there are pending messages for the node, otherwise `false`.
-    pub fn has_pending_messages(&self, node_id: &NodeId) -> bool {
-        self.pending_messages.contains_key(node_id)
+    pub fn has_pending_messages(&self, node_id: NodeId) -> bool {
+        self.pending_messages.contains_key(&node_id)
     }
 }
 
@@ -83,7 +83,7 @@ mod tests {
 
         queue.add_message(node_id, message.clone());
 
-        assert!(queue.has_pending_messages(&node_id));
+        assert!(queue.has_pending_messages(node_id));
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod tests {
         queue.add_message(node_id, message1.clone());
         queue.add_message(node_id, message2.clone());
 
-        let messages = queue.take_pending_messages(&node_id);
+        let messages = queue.take_pending_messages(node_id);
         assert!(messages.is_some());
         let messages = messages.unwrap();
         assert_eq!(messages.len(), 2);
@@ -112,7 +112,7 @@ mod tests {
         }
 
         // Ensure messages are removed after being taken
-        assert!(!queue.has_pending_messages(&node_id));
+        assert!(!queue.has_pending_messages(node_id));
     }
 
     #[test]
@@ -120,9 +120,9 @@ mod tests {
         let mut queue = PendingMessagesQueue::new();
         let node_id = 3;
 
-        assert!(!queue.has_pending_messages(&node_id));
+        assert!(!queue.has_pending_messages(node_id));
 
         queue.add_message(node_id, dummy_message());
-        assert!(queue.has_pending_messages(&node_id));
+        assert!(queue.has_pending_messages(node_id));
     }
 }
