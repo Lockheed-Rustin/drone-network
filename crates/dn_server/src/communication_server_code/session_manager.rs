@@ -11,7 +11,7 @@
 //! - Allows for recovery of fragments and destinations when required.
 //! - Auto-increments session IDs to uniquely identify each session.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::{Ack, Fragment};
 
@@ -33,6 +33,8 @@ pub struct SessionManager {
 
     // destination_id -> all the fragments that need to go there. Each fragment is associated with its SessionId
     waiting_fragments: HashMap<NodeId, Vec<(FragmentIndex, SessionId)>>,
+
+    pub(crate) already_dropped: HashSet<(SessionId, FragmentIndex)>,
 }
 
 impl SessionManager {
@@ -49,6 +51,7 @@ impl SessionManager {
             pending_sessions: HashMap::new(),
             pending_sessions_destination: HashMap::new(),
             waiting_fragments: HashMap::new(),
+            already_dropped: HashSet::new(),
         }
     }
 
