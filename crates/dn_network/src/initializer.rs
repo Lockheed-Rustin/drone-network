@@ -2,7 +2,8 @@ use crate::fair_drones::{drone_from_opt, drones_from_opts, DroneOptions};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{
-    ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController, Topology,
+    ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController,
+    SimulationControllerOptions, Topology,
 };
 use dn_server::Server;
 use petgraph::prelude::{DiGraphMap, UnGraphMap};
@@ -94,7 +95,7 @@ where
         servers.into_par_iter().for_each(|mut server| server.run());
     });
 
-    Ok(SimulationController::new(
+    Ok(SimulationController::new(SimulationControllerOptions {
         nodes,
         drone_recv,
         server_recv,
@@ -103,7 +104,7 @@ where
         drone_pool,
         client_pool,
         server_pool,
-    ))
+    }))
 }
 
 fn get_packet_send(

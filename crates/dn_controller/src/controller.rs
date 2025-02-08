@@ -51,6 +51,17 @@ impl NodeType {
     }
 }
 
+pub struct SimulationControllerOptions {
+    pub nodes: HashMap<NodeId, Node>,
+    pub drone_recv: Receiver<DroneEvent>,
+    pub server_recv: Receiver<ServerEvent>,
+    pub client_recv: Receiver<ClientEvent>,
+    pub topology: Topology,
+    pub drone_pool: ThreadPool,
+    pub client_pool: ThreadPool,
+    pub server_pool: ThreadPool,
+}
+
 pub struct SimulationController {
     nodes: HashMap<NodeId, Node>,
 
@@ -69,25 +80,16 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
-    pub fn new(
-        nodes: HashMap<NodeId, Node>,
-        drone_recv: Receiver<DroneEvent>,
-        server_recv: Receiver<ServerEvent>,
-        client_recv: Receiver<ClientEvent>,
-        topology: Topology,
-        drone_pool: ThreadPool,
-        client_pool: ThreadPool,
-        server_pool: ThreadPool,
-    ) -> Self {
+    pub fn new(opt: SimulationControllerOptions) -> Self {
         Self {
-            nodes,
-            drone_recv,
-            server_recv,
-            client_recv,
-            topology,
-            drone_pool,
-            client_pool,
-            server_pool,
+            nodes: opt.nodes,
+            drone_recv: opt.drone_recv,
+            server_recv: opt.server_recv,
+            client_recv: opt.client_recv,
+            topology: opt.topology,
+            drone_pool: opt.drone_pool,
+            client_pool: opt.client_pool,
+            server_pool: opt.server_pool,
         }
     }
 
