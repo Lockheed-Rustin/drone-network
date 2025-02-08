@@ -1,6 +1,6 @@
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
-use dn_message::{Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody};
+use dn_message::{Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody, ServerType};
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
@@ -395,13 +395,30 @@ impl Client {
         self.send_packet(ack);
 
         if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
+            self.controller_send
+                .send(ClientEvent::MessageAssembled{
+                    body: server_body.clone(),
+                    from: sender,
+                    to: self.id,
+                })
+                .expect("Error in controller_send");
+
             match &server_body {
                 ServerBody::RespServerType(server_type) => {
                     self.message_manager.add_server_type(sender, server_type);
 
-                    if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
-                        for client_body in unsended {
-                            self.send_message(client_body, sender);
+                    match server_type {
+                        ServerType::Communication if !self.message_manager.is_reg_to_comm(sender) => {
+                            if self.message_manager.is_there_unsended_message(sender) {
+                                self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), sender);
+                            }
+                        }
+                        _ => {
+                            if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
+                                for client_body in unsended {
+                                    self.send_message(client_body, sender);
+                                }
+                            }
                         }
                     }
                 }
@@ -425,14 +442,6 @@ impl Client {
                 }
                 ServerBody::ErrUnsupportedRequestType => {}
             }
-
-            self.controller_send
-                .send(ClientEvent::MessageAssembled{
-                    body: server_body,
-                    from: sender,
-                    to: self.id,
-                })
-                .expect("Error in controller_send");
         }
     }
 
