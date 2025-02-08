@@ -219,7 +219,7 @@ impl SimulationController {
 
     pub fn get_group_name(&self, drone_id: NodeId) -> Option<&str> {
         match &self.nodes.get(&drone_id)?.node_type {
-            NodeType::Drone { group_name, .. } => Some(&group_name),
+            NodeType::Drone { group_name, .. } => Some(group_name),
             _ => None,
         }
     }
