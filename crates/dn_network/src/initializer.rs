@@ -145,7 +145,7 @@ fn drone_options(
             let id = drone.id;
             let pdr = drone.pdr;
 
-            drones.get(i).new(DroneOptions {
+            drones.get(i).drone(DroneOptions {
                 id,
                 controller_send,
                 controller_recv,

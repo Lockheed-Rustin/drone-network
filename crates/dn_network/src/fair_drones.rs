@@ -9,7 +9,7 @@ use wg_2024::network::NodeId;
 use wg_2024::packet::Packet;
 
 pub trait FairDrone {
-    fn new(&self, opt: DroneOptions) -> Box<dyn Drone>;
+    fn drone(&self, opt: DroneOptions) -> Box<dyn Drone>;
     fn group_name(&self) -> &str;
 }
 
@@ -28,7 +28,7 @@ struct FD<D: Drone> {
 }
 
 impl<D: Drone + 'static> FairDrone for FD<D> {
-    fn new(&self, opt: DroneOptions) -> Box<dyn Drone> {
+    fn drone(&self, opt: DroneOptions) -> Box<dyn Drone> {
         Box::new(D::new(
             opt.id,
             opt.controller_send,
