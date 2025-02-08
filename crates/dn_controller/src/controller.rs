@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use dn_message::ClientBody;
 use petgraph::algo::connected_components;
 use petgraph::prelude::UnGraphMap;
+use rayon::ThreadPool;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use wg_2024::packet::Packet;
@@ -59,7 +60,12 @@ pub struct SimulationController {
 
     topology: Topology,
 
-    _pool: rayon::ThreadPool,
+    #[allow(unused)]
+    drone_pool: ThreadPool,
+    #[allow(unused)]
+    client_pool: ThreadPool,
+    #[allow(unused)]
+    server_pool: ThreadPool,
 }
 
 impl SimulationController {
@@ -69,7 +75,9 @@ impl SimulationController {
         server_recv: Receiver<ServerEvent>,
         client_recv: Receiver<ClientEvent>,
         topology: Topology,
-        pool: rayon::ThreadPool,
+        drone_pool: ThreadPool,
+        client_pool: ThreadPool,
+        server_pool: ThreadPool,
     ) -> Self {
         Self {
             nodes,
@@ -77,7 +85,9 @@ impl SimulationController {
             server_recv,
             client_recv,
             topology,
-            _pool: pool,
+            drone_pool,
+            client_pool,
+            server_pool,
         }
     }
 
