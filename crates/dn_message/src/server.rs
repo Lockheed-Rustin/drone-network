@@ -28,4 +28,6 @@ pub enum ServerCommunicationBody {
     RespClientList(Vec<NodeId>),
     MessageReceive(CommunicationMessage),
     ErrWrongClientId,
+    ErrNotRegistered,
+    RegistrationSuccess,
 }
