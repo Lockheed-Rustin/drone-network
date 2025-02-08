@@ -255,6 +255,8 @@ impl Client {
         self.flood_id += 1;
         self.session_id += 1;
 
+        self.already_dropped.clear();
+
         for (_, sender) in self.packet_send.iter() {
             sender
                 .send(flood_request_packet.clone())
@@ -373,8 +375,6 @@ impl Client {
                 self.source_routing.inc_packet_dropped(&header.hops);
 
                 if self.already_dropped.contains(&(session_id, nack.fragment_index)) {
-                    self.already_dropped.remove(&(session_id, nack.fragment_index));
-
                     self.send_flood_request();
                 }
                 else {
