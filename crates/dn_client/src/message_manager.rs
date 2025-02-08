@@ -90,6 +90,10 @@ impl MessageManager {
         self.unsended_messages.remove(&dest)
     }
 
+    pub fn is_there_unsended_message(&self, dest: NodeId) -> bool {
+        self.unsended_messages.contains_key(&dest)
+    }
+
     /*
     pub fn add_unsended_fragment(&mut self, dest: NodeId, session_id: u64, fragment: Fragment) {
         let unsendeds = self.unsendable_fragments.entry(dest).or_default();
