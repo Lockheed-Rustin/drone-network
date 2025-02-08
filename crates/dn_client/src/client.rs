@@ -310,9 +310,7 @@ impl Client {
     fn handle_fragment(&mut self, fragment: &Fragment, header: &SourceRoutingHeader, session_id: u64) {
         if header.hops.len() < 2 {return;}
 
-        if let Some(&sender) = header.hops.first() {
-            self.source_routing.correct_exchanged_with(sender, &header.hops);
-        }
+        self.source_routing.correct_exchanged_with(&header.hops);
 
         let &sender = header.hops.first().unwrap(); // always have first since path.len() >= 2
 
@@ -363,14 +361,14 @@ impl Client {
     fn handle_nack(&mut self, nack: &Nack, header: &SourceRoutingHeader, session_id: u64) {
         match nack.nack_type {
             NackType::ErrorInRouting(node) => {
-                self.source_routing.correct_exchanged_with(node, &header.hops);
+                self.source_routing.correct_exchanged_with(&header.hops);
 
                 self.send_flood_request();
 
                 self.source_routing.remove_node(node);
             }
             NackType::DestinationIsDrone => {
-                self.source_routing.correct_exchanged_with(header.hops[0], &header.hops);
+                self.source_routing.correct_exchanged_with(&header.hops);
 
                 self.send_flood_request();
                 //in this scenario, fragment will be added to the unsendeds fragments
@@ -386,8 +384,8 @@ impl Client {
                 }
 
             }
-            NackType::UnexpectedRecipient(node) => {
-                self.source_routing.correct_exchanged_with(node, &header.hops);
+            NackType::UnexpectedRecipient(_) => {
+                self.source_routing.correct_exchanged_with(&header.hops);
             }
         }
 

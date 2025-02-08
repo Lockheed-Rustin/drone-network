@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use petgraph::data::Build;
 use petgraph::prelude::UnGraphMap;
 
 use std::collections::BinaryHeap;
@@ -59,33 +58,10 @@ impl Ord for QP {
 
 
 //---------- STRUCT SERVER INFO ----------//
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ServerInfo {
     path: Path,
     reachable: bool,
-    packet_exchanged: u64,
-    weight: f64,
-}
-
-impl Default for ServerInfo {
-    fn default() -> Self {
-        Self {
-            path: Vec::new(),
-            reachable: false,
-            packet_exchanged: 0, //since last update of paths to servers
-            weight: 1.0,
-        }
-    }
-}
-
-impl ServerInfo {
-    pub fn inc_packet_exchanged(&mut self) {
-        self.packet_exchanged += 1;
-    }
-
-    pub fn update_weight(&mut self, new_weight: f64) {
-        self.weight = (new_weight + (0.5 * self.weight)) / 1.5;
-    }
 }
 
 
@@ -131,7 +107,7 @@ impl DroneInfo {
 //---------- CLIENT'S SOURCE ROUTING ----------//
 pub struct ClientRouting {
     client_id: NodeId,
-    topology: UnGraphMap<NodeId, f64>,
+    topology: UnGraphMap<NodeId, ()>,
     servers_info: HashMap<NodeId, ServerInfo>,
     drones_info: HashMap<NodeId, DroneInfo>,
     clients: HashSet<NodeId>,
@@ -139,7 +115,7 @@ pub struct ClientRouting {
 
 impl ClientRouting {
     pub fn new(client_id: NodeId) -> Self {
-        let mut topology: UnGraphMap::<NodeId, f64> =  UnGraphMap::new();
+        let mut topology: UnGraphMap::<NodeId, ()> =  UnGraphMap::new();
         topology.add_node(client_id);
 
         let mut clients: HashSet<NodeId> = HashSet::new();
@@ -182,7 +158,7 @@ impl ClientRouting {
             self.drones_info.insert(neighbor, DroneInfo::default());
         }
 
-        if self.topology.add_edge(self.client_id, neighbor, 1.0).is_none() {
+        if self.topology.add_edge(self.client_id, neighbor, ()).is_none() {
             //If new edge is added
             self.compute_routing_paths()
         }
@@ -229,7 +205,7 @@ impl ClientRouting {
 
             //add new edges to topology
             if !self.topology.contains_edge(node, last) {
-                self.topology.add_edge(node, last, 1.0);
+                self.topology.add_edge(node, last, ());
                 something_changed = true;
             }
             last = node;
@@ -244,51 +220,19 @@ impl ClientRouting {
         }
     }
 
-    /// Add given weight to given path, except the edge between client and the first node.
-    ///
-    /// Return if it isn't at least 2 nodes, cause there can be a path.
-    ///
-    /// Don't increment the weight of edge between client itself and the first node,
-    /// since this should generate some unwanted case where the chosen path doesn't improve the
-    /// topology's performance, but it makes them worse.
-    fn add_weight_to_path(&mut self, path: &Path, weight: f64) {
-        let mut iter = path.iter();
-
-        if iter.next().is_none() {
-            return; //path empty
-        };
-
-        let mut last = match iter.next() { //last = first drone after client
-            Some(&node) => node,
-            None => return, //Case path = [client]
-        };
-
-        for &node in iter {
-            if let Some(edge_weight) = self.topology.edge_weight(node, last) {
-                self.topology.update_edge(node, last, edge_weight+weight);
-            };
-            last = node;
-        }
-    }
-
 
     //---------- update info on packet exchanged ----------//
     pub fn correct_send_to(&mut self, server: NodeId) {
         if let Some(server_info) = self.servers_info.get(&server) {
-            self.correct_exchanged_with(server, &server_info.path.clone());
+            self.correct_exchanged_with(&server_info.path.clone());
         }
     }
 
-    pub fn correct_exchanged_with(&mut self, node: NodeId, path: &Path) {
+    pub fn correct_exchanged_with(&mut self, path: &Path) {
         for drone in path.iter() {
             if let Some(drone_info) = self.drones_info.get_mut(drone) {
                 drone_info.inc_correct_traveled();
             }
-        }
-
-        //if final node is a server
-        if let Some(server_info) = self.servers_info.get_mut(&node) {
-            server_info.inc_packet_exchanged();
         }
     }
 
@@ -335,66 +279,6 @@ impl ClientRouting {
 
         let mut servers_became_reachable: Vec<(NodeId, Path)> = Vec::new();
 
-        //reset edge's weights
-        for (_, _, edge_weight) in self.topology.all_edges_mut() {
-            *edge_weight = 1.0;
-        }
-
-        //calculate mean packet exchanged with servers
-        let mut total_packet = 0;
-        for (_, info) in self.servers_info.iter_mut() {
-            total_packet += info.packet_exchanged;
-        }
-        let mean = (total_packet as f64) / (self.servers_info.len() as f64);
-
-        //ord servers: heaviest "path" first
-        let mut ord_vec: BinaryHeap<(QP, NodeId)> = BinaryHeap::new();
-        for (server, info) in self.servers_info.iter_mut() {
-            if mean == 0.0 {
-                ord_vec.push((QP::new(1.0), *server));
-            }
-            else {
-                let act_weight = info.packet_exchanged as f64 / mean;
-                info.update_weight(act_weight);
-                ord_vec.push((QP::new(info.weight), *server));
-            }
-
-        }
-
-        //compute single path for every server
-        for (QP{prio}, server) in ord_vec {
-            if let Some(path) = self.compute_path_to_server(server) {
-                let server_info = self.servers_info.get_mut(&server).unwrap();
-                server_info.path = path.clone();
-
-                if !server_info.reachable {
-                    server_info.reachable = true;
-                    servers_became_reachable.push((server, path.clone()));
-                }
-
-                self.add_weight_to_path(&path, prio);
-            }
-            else {
-                let server_info = self.servers_info.get_mut(&server).unwrap();
-                server_info.reachable = false;
-            }
-        }
-
-        if servers_became_reachable.is_empty() {
-            None
-        }
-        else {
-            Some(servers_became_reachable)
-        }
-    }
-
-    /// Returns the path to destination with the respective weight if exists, None otherwise.
-    fn compute_path_to_server(&self, destination: NodeId) -> Option<Path> {
-        //check if topology contains destination server
-        if !self.topology.contains_node(destination) {
-            return None
-        }
-
         //init
         let mut queue: BinaryHeap<(Reverse<QP>, NodeId)> = BinaryHeap::new();
         queue.push((Reverse(QP::new(0.0)), self.client_id));
@@ -404,35 +288,30 @@ impl ClientRouting {
         let mut visited: HashSet<NodeId> = HashSet::new();
 
         //search the shortest path
-        while !visited.contains(&destination) && !queue.is_empty() {
+        while !queue.is_empty() {
             if let Some((Reverse(qp), node)) = queue.pop() {
-                let distance = qp.prio;
+                let mut distance = qp.prio;
                 if !visited.contains(&node) {
                     visited.insert(node);
 
-                    if node != destination {
+                    if !self.servers_info.contains_key(&node) {
                         for neighbor in self.topology.neighbors(node) {
-                            //if neighbor it's not visited yet && it's not a client && (it's not a server, or it's the destination)
-                            if !visited.contains(&neighbor)
-                                && !self.clients.contains(&neighbor)
-                                && (!self.servers_info.contains_key(&neighbor) || neighbor == destination)
-                            {
-                                let edge_weight = self.topology.edge_weight(node, neighbor).unwrap();
-
-                                let mut total_distance = distance + edge_weight;
+                            //if neighbor it's not visited yet && it's not a client
+                            if !visited.contains(&neighbor) && !self.clients.contains(&neighbor) {
+                                distance += 1.0;
                                 if let Some(drone_info) = self.drones_info.get(&neighbor) {
-                                    total_distance *= drone_info.rps_factor();
+                                    distance *= drone_info.rps_factor();
                                 }
 
-                                queue.push((Reverse(QP::new(total_distance)), neighbor));
+                                queue.push((Reverse(QP::new(distance)), neighbor));
 
                                 distances.entry(neighbor)
                                     .and_modify(|e| {
-                                        if e.1 > total_distance {
-                                            *e = (node, total_distance);
+                                        if e.1 > distance {
+                                            *e = (node, distance);
                                         }
                                     })
-                                    .or_insert((node, total_distance));
+                                    .or_insert((node, distance));
                             }
                         }
                     }
@@ -440,23 +319,37 @@ impl ClientRouting {
             }
         }
 
-        //reconstruct path or return None if path doesn't exist
-        if visited.contains(&destination) {
-            let mut path: Path = Vec::new();
-            path.push(destination);
-            let mut last = destination;
+        //compute single path for every server
+        for (&server, server_info) in self.servers_info.iter_mut() {
+            if visited.contains(&server) {
+                let mut path: Path = Vec::new();
+                path.push(server);
+                let mut last = server;
 
-            while last != self.client_id {
-                let (pred, _) = distances.get(&last).unwrap();
-                path.push(*pred);
-                last = *pred;
+                while last != self.client_id {
+                    let (pred, _) = distances.get(&last).unwrap();
+                    path.push(*pred);
+                    last = *pred;
+                }
+                path.reverse();
+
+                server_info.path = path.clone();
+
+                if !server_info.reachable {
+                    server_info.reachable = true;
+                    servers_became_reachable.push((server, path.clone()));
+                }
             }
-            path.reverse();
+            else {
+                server_info.reachable = false;
+            }
+        }
 
-            Some(path)
+        if servers_became_reachable.is_empty() {
+            None
         }
         else {
-            None
+            Some(servers_became_reachable)
         }
     }
 }
@@ -511,21 +404,6 @@ mod tests {
 
         assert!(server_info.path.is_empty());
         assert!(!server_info.reachable);
-        assert_eq!(server_info.packet_exchanged, 0);
-        assert_eq!(server_info.weight, 1.0);
-
-
-        //---------- functions ----------//
-        for _ in 0..100 {
-            server_info.inc_packet_exchanged();
-        }
-        assert_eq!(server_info.packet_exchanged, 100);
-
-        server_info.update_weight(1.6);
-        assert_eq!((server_info.weight*10.0).trunc()/10.0, 1.4);
-
-        server_info.update_weight(1.1);
-        assert_eq!((server_info.weight*10.0).trunc()/10.0, 1.2);
     }
 
 
@@ -565,11 +443,9 @@ mod tests {
 
         assert!(client_routing.topology.contains_node(2));
         assert!(client_routing.topology.contains_edge(1,2));
-        assert_eq!(*client_routing.topology.edge_weight(1,2).unwrap(), 1.0);
 
         assert!(client_routing.topology.contains_node(3));
         assert!(client_routing.topology.contains_edge(1,3));
-        assert_eq!(*client_routing.topology.edge_weight(1,3).unwrap(), 1.0);
 
         assert!(client_routing.drones_info.contains_key(&2));
         assert!(client_routing.drones_info.contains_key(&3));
@@ -596,10 +472,6 @@ mod tests {
 
         //---------- add weight to path ----------//
         let path = vec![1, 2, 4];
-        client_routing.add_weight_to_path(&path, 1.5);
-
-        assert_eq!(*client_routing.topology.edge_weight(1,2).unwrap(), 1.0);
-        assert_eq!(*client_routing.topology.edge_weight(2,4).unwrap(), 2.5);
 
 
         //---------- remove channel to neighbor ----------//
@@ -653,8 +525,6 @@ mod tests {
         assert_eq!(client_routing.drones_info.get(&3).unwrap().packet_traveled, 1);
         assert_eq!(client_routing.drones_info.get(&3).unwrap().packet_dropped, 0);
 
-        assert_eq!(client_routing.servers_info.get(&6).unwrap().packet_exchanged, 1);
-
 
         //---------- packet dropped ----------//
         client_routing.inc_packet_dropped(&dropped_path);
@@ -705,14 +575,6 @@ mod tests {
         drone_info = client_routing.drones_info.get_mut(&5).unwrap();
         drone_info.packet_traveled = 100;
         drone_info.packet_dropped = 20;
-
-        let mut server_info;
-        server_info = client_routing.servers_info.get_mut(&6).unwrap();
-        server_info.packet_exchanged = 160;
-        server_info = client_routing.servers_info.get_mut(&7).unwrap();
-        server_info.packet_exchanged = 40;
-        server_info = client_routing.servers_info.get_mut(&8).unwrap();
-        server_info.packet_exchanged = 100;
 
 
         //---------- check pre-test ----------//
