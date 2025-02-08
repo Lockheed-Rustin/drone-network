@@ -91,7 +91,8 @@ impl SessionManager {
                 self.pending_sessions.remove(session_id);
                 self.pending_sessions_destination.remove(session_id);
             }
-            self.already_dropped.remove(&(*session_id, ack.fragment_index));
+            self.already_dropped
+                .remove(&(*session_id, ack.fragment_index));
         }
     }
 

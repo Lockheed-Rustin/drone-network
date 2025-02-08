@@ -1,5 +1,6 @@
 use crate::communication_server_code::communication_server::CommunicationServer;
 use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
+use crate::communication_server_code::session_manager::SessionId;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::assembler::Assembler;
@@ -8,7 +9,6 @@ use rand::Rng;
 use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, NodeType, Packet, PacketType};
-use crate::communication_server_code::session_manager::SessionId;
 
 pub struct TestServerHelper {
     pub server: CommunicationServer,
