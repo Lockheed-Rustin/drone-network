@@ -1,3 +1,4 @@
+use crate::fair_drones::{drone_from_opt, drones_from_opts, DroneOptions};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{
@@ -13,11 +14,10 @@ use std::collections::HashMap;
 use wg_2024::{
     config::Config,
     controller::DroneEvent,
+    drone::Drone,
     network::NodeId,
     packet::{NodeType, Packet},
 };
-
-use crate::fair_drones::{drones_from_opts, DroneOptions};
 
 #[derive(Clone, Debug)]
 pub enum NetworkInitError {
@@ -38,6 +38,24 @@ pub enum NetworkInitError {
 }
 
 pub fn init_network(config: &Config) -> Result<SimulationController, NetworkInitError> {
+    init_network_with_fn(config, drones_from_opts)
+}
+
+pub fn init_network_with_drone<D: Drone + 'static>(
+    config: &Config,
+) -> Result<SimulationController, NetworkInitError> {
+    init_network_with_fn(config, |opts| {
+        opts.into_iter().map(drone_from_opt::<D>).collect()
+    })
+}
+
+fn init_network_with_fn<F>(
+    config: &Config,
+    drones_from_opts: F,
+) -> Result<SimulationController, NetworkInitError>
+where
+    F: FnOnce(Vec<DroneOptions>) -> Vec<Box<dyn Drone>>,
+{
     let topology = init_topology(config)?;
 
     let mut nodes = HashMap::new();
