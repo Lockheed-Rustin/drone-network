@@ -1,11 +1,11 @@
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
-use dn_message::{Assembler, ClientBody, Message};
+use dn_message::{Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody};
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType};
 use wg_2024::{network::NodeId, packet::Packet};
-use crate::ClientRouting;
+use crate::{ClientRouting, MessageManager, ServerTypeError};
 
 
 
@@ -26,6 +26,7 @@ pub struct Client {
 
     //NOTE: assembler manages incoming messages and rebuild them;
     //      following structures manage sent messages
+    message_manager: MessageManager,
     pending_sessions: HashMap<u64, (NodeId, PendingFragments)>, // (dest, session_id) -> (fragment_index -> fragment)
     unsendable_fragments: HashMap<NodeId, Vec<(u64, Fragment)>>, // dest -> Vec<(session_id, fragment)>
     already_dropped: HashSet<(u64, u64)>,
@@ -55,6 +56,7 @@ impl Client {
             flood_id: 0,
             assembler: Assembler::new(),
             source_routing,
+            message_manager: MessageManager::new(),
             pending_sessions: HashMap::new(),
             unsendable_fragments: HashMap::new(),
             already_dropped: HashSet::new(),
@@ -87,7 +89,7 @@ impl Client {
     //---------- handle receiver ----------//
     fn handle_command(&mut self, command: ClientCommand) {
         match command {
-            ClientCommand::SendMessage(client_body, to) => self.send_message(client_body, to),
+            ClientCommand::SendMessage(client_body, to) => self.handle_send_message(client_body, to),
             ClientCommand::SendFloodRequest => self.send_flood_request(),
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
             ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
@@ -156,14 +158,17 @@ impl Client {
                             .collect::<Vec<_>>();
                         path.insert(0,self.id);
 
-                        let nack = Packet::new_nack(
-                            SourceRoutingHeader{hop_index: 0, hops: path},
-                            packet.session_id,
-                            Nack{
+                        let nack = Packet {
+                            routing_header: SourceRoutingHeader{
+                                hop_index: 0,
+                                hops: path
+                            },
+                            session_id: packet.session_id,
+                            pack_type: PacketType::Nack(Nack{
                                 fragment_index: packet.get_fragment_index(),
                                 nack_type: NackType::UnexpectedRecipient(self.id),
-                            }
-                        );
+                            }),
+                        };
 
                         self.send_packet(nack);
 
@@ -203,9 +208,17 @@ impl Client {
         for (server, path) in servers {
             if path.len() >= 2 {
                 if let Some(unsendeds) = self.unsendable_fragments.remove(&server) {
-                    let header = SourceRoutingHeader::initialize(path);
-                    for (session, fragment) in unsendeds {
-                        let packet = Packet::new_fragment(header.clone(), session, fragment);
+
+                    for (session_id, fragment) in unsendeds {
+                        let packet = Packet {
+                            routing_header: SourceRoutingHeader {
+                                hop_index: 0,
+                                hops: path.clone(),
+                            },
+                            session_id,
+                            pack_type: PacketType::MsgFragment(fragment),
+                        };
+
 
                         self.send_packet(packet);
                     }
@@ -249,11 +262,19 @@ impl Client {
     }
 
     fn send_flood_request(&mut self) {
-        let flood_request_packet = Packet::new_flood_request(
-            SourceRoutingHeader::empty_route(),
-            self.session_id,
-            FloodRequest::initialize(self.flood_id, self.id, NodeType::Client)
-        );
+        let flood_request_packet = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: Vec::new(),
+            },
+            session_id: self.session_id,
+            pack_type: PacketType::FloodRequest(FloodRequest {
+                flood_id: self.flood_id,
+                initiator_id: self.id,
+                path_trace: vec![(self.id, NodeType::Client)],
+            }),
+        };
+
         self.flood_id += 1;
         self.session_id += 1;
 
@@ -274,7 +295,15 @@ impl Client {
 
     fn send_fragment(&mut self, dest: NodeId, fragment: Fragment, session_id: u64) -> bool {
         if let Some(path) = self.source_routing.get_path(dest) {
-            let packet= Packet::new_fragment(SourceRoutingHeader::initialize(path.clone()), session_id, fragment);
+            let packet = Packet {
+                routing_header: SourceRoutingHeader {
+                    hop_index: 0,
+                    hops: path.clone(),
+                },
+                session_id,
+                pack_type: PacketType::MsgFragment(fragment),
+            };
+
             self.send_packet(packet);
 
             true
@@ -306,6 +335,44 @@ impl Client {
 
 
     //---------- handle ----------//
+    fn handle_send_message(&mut self, client_body: ClientBody, dest: NodeId) {
+        if let Some(err) = self.message_manager.is_invalid_send(&client_body, dest) {
+            match err {
+                ServerTypeError::ServerTypeUnknown => {
+                    self.message_manager.add_unsended_message(&client_body, dest);
+
+                    self.send_message(ClientBody::ReqServerType, dest);
+                }
+                ServerTypeError::WrongServerType => {
+                    self.controller_send
+                        .send(ClientEvent::MessageAssembled{
+                            body: ServerBody::ErrUnsupportedRequestType,
+                            from: dest,
+                            to: self.id,
+                        })
+                        .expect("Error in controller_send");
+                }
+            }
+        }
+        else {
+            match &client_body {
+                ClientBody::ClientCommunication(_) => {
+                    if self.message_manager.is_reg_to_comm(dest) {
+                        self.send_message(client_body, dest);
+                    }
+                    else {
+                        self.message_manager.add_unsended_message(&client_body, dest);
+
+                        self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), dest);
+                    }
+                }
+
+                _ => {
+                    self.send_message(client_body, dest);
+                }
+            }
+        }
+    }
 
     fn handle_fragment(&mut self, fragment: &Fragment, header: &SourceRoutingHeader, session_id: u64) {
         if header.hops.len() < 2 {return;}
@@ -314,17 +381,51 @@ impl Client {
 
         let &sender = header.hops.first().unwrap(); // always have first since path.len() >= 2
 
-        let ack = Packet::new_ack(
-            SourceRoutingHeader::initialize(
-                header.hops.iter().cloned().rev().collect::<Vec<_>>()
-            ),
+        let ack = Packet {
+            routing_header: SourceRoutingHeader{
+                hop_index: 0,
+                hops: header.hops.iter().cloned().rev().collect::<Vec<_>>(),
+            },
             session_id,
-            fragment.fragment_index,
-        );
+            pack_type: PacketType::Ack(Ack{
+                fragment_index: fragment.fragment_index,
+            }),
+        };
 
         self.send_packet(ack);
 
         if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
+            match &server_body {
+                ServerBody::RespServerType(server_type) => {
+                    self.message_manager.add_server_type(sender, server_type);
+
+                    if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
+                        for client_body in unsended {
+                            self.send_message(client_body, sender);
+                        }
+                    }
+                }
+                ServerBody::ServerContent(_) => {
+                    //TODO: capire cosa devo fare con daniele
+                }
+                ServerBody::ServerCommunication(comm_server_body) => {
+                    match comm_server_body {
+                        ServerCommunicationBody::ErrNotRegistered => {
+                            self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), sender);
+                        }
+                        ServerCommunicationBody::RegistrationSuccess => {
+                            if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
+                            for client_body in unsended {
+                                self.send_message(client_body, sender);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                ServerBody::ErrUnsupportedRequestType => {}
+            }
+
             self.controller_send
                 .send(ClientEvent::MessageAssembled{
                     body: server_body,
@@ -447,7 +548,7 @@ mod tests {
         let mut server_senders: HashMap<NodeId, Sender<Packet>> = HashMap::new();
 
         //channel to client
-        let (send_to_client, serv_recv): (Sender<Packet>, Receiver<Packet>) = unbounded();
+        let (_send_to_client, serv_recv): (Sender<Packet>, Receiver<Packet>) = unbounded();
 
         //channel to node2
         let (serv_send_2, recv_2): (Sender<Packet>, Receiver<Packet>) = unbounded();

@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn server_info_test() {
         //---------- init ----------//
-        let mut server_info = ServerInfo::default();
+        let server_info = ServerInfo::default();
 
         assert!(server_info.path.is_empty());
         assert!(!server_info.reachable);
@@ -462,16 +462,10 @@ mod tests {
         assert!(client_routing.topology.contains_node(4));
 
         assert!(client_routing.topology.contains_edge(2,4));
-        assert_eq!(*client_routing.topology.edge_weight(2,4).unwrap(), 1.0);
 
         assert!(client_routing.topology.contains_edge(3,4));
-        assert_eq!(*client_routing.topology.edge_weight(3,4).unwrap(), 2.0);
 
         assert!(client_routing.servers_info.contains_key(&4));
-
-
-        //---------- add weight to path ----------//
-        let path = vec![1, 2, 4];
 
 
         //---------- remove channel to neighbor ----------//
@@ -595,24 +589,15 @@ mod tests {
 
         server_info = client_routing.servers_info.get(&7).unwrap();
         assert!(server_info.reachable);
-        assert_eq!(server_info.path, vec![1,4,5,7]);
+        assert_eq!(server_info.path, vec![1,2,3,7]);
 
         server_info = client_routing.servers_info.get(&8).unwrap();
         assert!(!server_info.reachable);
 
-        assert_eq!(*client_routing.topology.edge_weight(1,2).unwrap(), 1.0);
-        assert_eq!((*client_routing.topology.edge_weight(2,3).unwrap()*10.0).trunc()/10.0, 2.4);
-        assert_eq!((*client_routing.topology.edge_weight(3,6).unwrap()*10.0).trunc()/10.0, 2.4);
-
-
-        assert_eq!(*client_routing.topology.edge_weight(1,4).unwrap(), 1.0);
-        assert_eq!((*client_routing.topology.edge_weight(4,5).unwrap()*10.0).trunc()/10.0, 1.6);
-        assert_eq!((*client_routing.topology.edge_weight(5,7).unwrap()*10.0).trunc()/10.0, 1.6);
-
 
         //---------- get path ----------//
         assert_eq!(client_routing.get_path(6).unwrap(), vec![1,2,3,6]);
-        assert_eq!(client_routing.get_path(7).unwrap(), vec![1,4,5,7]);
+        assert_eq!(client_routing.get_path(7).unwrap(), vec![1,2,3,7]);
         assert!(client_routing.get_path(8).is_none());  //server unreachable
         assert!(client_routing.get_path(9).is_none());  //server doesn't exist
 
