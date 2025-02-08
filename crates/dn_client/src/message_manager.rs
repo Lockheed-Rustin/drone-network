@@ -2,8 +2,6 @@ use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use dn_message::{ClientBody, ServerType};
 
-//type PendingFragments = HashMap<u64, Fragment>;
-
 pub enum ServerTypeError {
     ServerTypeUnknown,
     WrongServerType,
@@ -11,9 +9,6 @@ pub enum ServerTypeError {
 
 
 pub struct MessageManager {
-    //pending_sessions: HashMap<u64, (NodeId, crate::client::PendingFragments)>, // (dest, session_id) -> (fragment_index -> fragment)
-    //unsendable_fragments: HashMap<NodeId, Vec<(u64, Fragment)>>, // dest -> Vec<(session_id, fragment)>
-    //already_dropped: HashSet<(u64, u64)>,
 
     communication_servers: HashMap<NodeId, bool>, //server_id -> already logged
     content_servers: HashSet<NodeId>,
@@ -105,17 +100,4 @@ impl MessageManager {
     pub fn is_there_unsent_message(&self, dest: NodeId) -> bool {
         self.unsent_messages.contains_key(&dest)
     }
-
-    /*
-    pub fn add_unsent_fragment(&mut self, dest: NodeId, session_id: u64, fragment: Fragment) {
-        let unsents = self.unsendable_fragments.entry(dest).or_default();
-        unsents.push((session_id, fragment));
-    }
-    */
-
-    /*
-    pub fn resend_fragment(&mut self, session_id: u64, fragment_index: u64) {
-
-    }
-    */
 }
