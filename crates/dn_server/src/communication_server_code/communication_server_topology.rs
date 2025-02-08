@@ -1,4 +1,4 @@
-//! # CommunicationServer's Network Topology
+//! # `CommunicationServer`'s Network Topology
 //! This module manages the network topology for the communication server.
 //! It provides methods for adding/removing nodes and edges, retrieving and updating node types,
 //! and implementing source routing.
@@ -96,8 +96,8 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Returns
     /// * `Option<&NodeType>` - The type of the node if it exists, `None` if the node is not found.
-    pub fn get_node_type(&self, node_id: &NodeId) -> Option<&NodeType> {
-        self.node_types.get(node_id)
+    pub fn get_node_type(&self, node_id: NodeId) -> Option<&NodeType> {
+        self.node_types.get(&node_id)
     }
 
     /// Updates the type of existing node in the network topology.
@@ -122,8 +122,8 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Returns
     /// * `Option<u32>` - The cost value if it exists, otherwise `None`.
-    pub fn get_node_cost(&self, node_id: &NodeId) -> Option<u32> {
-        self.node_costs.get(node_id).cloned()
+    pub fn get_node_cost(&self, node_id: NodeId) -> Option<u32> {
+        self.node_costs.get(&node_id).copied()
     }
 
     /// Updates the cost of a given node.
@@ -154,10 +154,11 @@ impl CommunicationServerNetworkTopology {
     ///                    `false` for success).
     pub fn update_estimated_pdr(&mut self, node_id: NodeId, nack_received: bool) {
         let lambda = self.lambda;
-        let old_pdr: f64 = self.get_node_cost(&node_id).unwrap_or(1) as f64 / 100.0;
+        let old_pdr: f64 = f64::from(self.get_node_cost(node_id).unwrap_or(1)) / 100.0;
         let new_pdr = if nack_received { 1.0 } else { 0.0 };
         let updated_pdr = (1.0 - lambda) * old_pdr + lambda * new_pdr;
-        let cost = (updated_pdr * 100.0).max(1.0) as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let cost = (updated_pdr * 100.0).max(1.0).floor() as u32;
         self.update_node_cost(node_id, cost);
     }
 
@@ -171,8 +172,8 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Returns
     /// * `Vec<NodeId>` - The saved path to the node, or an empty vector if no path is found.
-    pub fn get_saved_path(&self, node_id: &NodeId) -> Vec<NodeId> {
-        let path = self.saved_paths.get(node_id);
+    pub fn get_saved_path(&self, node_id: NodeId) -> Vec<NodeId> {
+        let path = self.saved_paths.get(&node_id);
         match path {
             None => vec![],
             Some(v) => v.clone(),
@@ -198,8 +199,8 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Arguments
     /// * `node_id` - A reference to the ID of the node whose path should be removed.
-    pub fn remove_path(&mut self, node_id: &NodeId) {
-        self.saved_paths.remove(node_id);
+    pub fn remove_path(&mut self, node_id: NodeId) {
+        self.saved_paths.remove(&node_id);
     }
 
     /// Attempts to find a route from one node to another using source routing.
@@ -214,10 +215,10 @@ impl CommunicationServerNetworkTopology {
     ///
     /// # Returns
     /// * `Option<Vec<NodeId>>` - The list of nodes representing the route from `from` to `to`,
-    ///    or `None` if destination_type was not Client. It returns an empty vec if the node `to`
+    ///    or `None` if `destination_type` was not Client. It returns an empty vec if the node `to`
     ///    is not known yet.
     pub fn source_routing(&mut self, from: NodeId, to: NodeId) -> Option<Vec<NodeId>> {
-        let destination_type = self.get_node_type(&to);
+        let destination_type = self.get_node_type(to);
         if let Some(nt) = destination_type {
             match nt {
                 NodeType::Client => {

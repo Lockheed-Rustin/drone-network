@@ -84,15 +84,15 @@ impl SessionManager {
     /// ### Arguments:
     /// - `ack`: The acknowledgment message containing the index of the acknowledged fragment.
     /// - `session_id`: The ID of the session being processed.
-    pub fn handle_ack(&mut self, ack: Ack, session_id: &SessionId) {
-        if let Some(fragment_map) = self.pending_sessions.get_mut(session_id) {
+    pub fn handle_ack(&mut self, ack: &Ack, session_id: SessionId) {
+        if let Some(fragment_map) = self.pending_sessions.get_mut(&session_id) {
             fragment_map.remove(&ack.fragment_index);
             if fragment_map.is_empty() {
-                self.pending_sessions.remove(session_id);
-                self.pending_sessions_destination.remove(session_id);
+                self.pending_sessions.remove(&session_id);
+                self.pending_sessions_destination.remove(&session_id);
             }
             self.already_dropped
-                .remove(&(*session_id, ack.fragment_index));
+                .remove(&(session_id, ack.fragment_index));
         }
     }
 
@@ -142,8 +142,8 @@ impl SessionManager {
     ///
     /// # Arguments
     /// * `dest` - The ID of the destination node.
-    /// * `fragment_index` - The fragment_index to be added to the waiting queue.
-    /// * `session_id` - The session_id associated with that fragment
+    /// * `fragment_index` - The `fragment_index` to be added to the waiting queue.
+    /// * `session_id` - The `session_id` associated with that fragment
     pub fn add_to_waiting_fragments(
         &mut self,
         dest: NodeId,
@@ -166,8 +166,8 @@ impl SessionManager {
     ///
     /// # Returns
     /// * `bool` - `true` if there are waiting fragments, `false` otherwise.
-    pub fn hash_waiting_fragments(&mut self, dest: &NodeId) -> bool {
-        self.waiting_fragments.contains_key(dest)
+    pub fn hash_waiting_fragments(&mut self, dest: NodeId) -> bool {
+        self.waiting_fragments.contains_key(&dest)
     }
 
     /// Retrieves and removes all waiting fragment indexes for a given destination node.
@@ -183,9 +183,9 @@ impl SessionManager {
     ///    indexes and session ids if they exist, otherwise `None`.
     pub fn take_waiting_fragments(
         &mut self,
-        dest: &NodeId,
+        dest: NodeId,
     ) -> Option<Vec<(FragmentIndex, SessionId)>> {
-        self.waiting_fragments.remove(dest)
+        self.waiting_fragments.remove(&dest)
     }
 
     /// Retrieves the destination node associated with a pending session.
@@ -199,8 +199,8 @@ impl SessionManager {
     ///
     /// # Returns
     /// * `Option<&NodeId>` - A reference to the destination node ID if it exists, otherwise `None`.
-    pub fn get_pending_sessions_destination(&self, session_id: &SessionId) -> Option<&NodeId> {
-        self.pending_sessions_destination.get(session_id)
+    pub fn get_pending_sessions_destination(&self, session_id: SessionId) -> Option<&NodeId> {
+        self.pending_sessions_destination.get(&session_id)
     }
 }
 
@@ -221,7 +221,7 @@ mod tests {
         let fragment_index = 1;
         let session_id = 1;
         manager.add_to_waiting_fragments(dest, fragment_index, session_id);
-        assert!(manager.hash_waiting_fragments(&dest));
+        assert!(manager.hash_waiting_fragments(dest));
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
         manager.add_to_waiting_fragments(6, 2, 3);
         manager.add_to_waiting_fragments(6, 1, 4);
 
-        let fragments = manager.take_waiting_fragments(&6);
+        let fragments = manager.take_waiting_fragments(6);
         assert!(fragments.is_some());
         let fragments = fragments.unwrap();
         assert_eq!(3, fragments.len());
@@ -240,14 +240,14 @@ mod tests {
         assert_eq!(3, fragments[1].1);
         assert_eq!(4, fragments[2].1);
 
-        assert!(!manager.hash_waiting_fragments(&6));
+        assert!(!manager.hash_waiting_fragments(6));
     }
 
     #[test]
     fn test_has_waiting_fragments() {
         let mut manager = SessionManager::new();
-        assert!(!manager.hash_waiting_fragments(&6));
+        assert!(!manager.hash_waiting_fragments(6));
         manager.add_to_waiting_fragments(6, 1, 3);
-        assert!(manager.hash_waiting_fragments(&6));
+        assert!(manager.hash_waiting_fragments(6));
     }
 }

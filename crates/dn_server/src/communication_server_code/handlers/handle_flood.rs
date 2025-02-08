@@ -75,7 +75,7 @@ impl CommunicationServer {
     ///
     /// # Arguments
     /// * `response` - The flood response to process.
-    pub(crate) fn handle_flood_response(&mut self, response: FloodResponse) {
+    pub(crate) fn handle_flood_response(&mut self, response: &FloodResponse) {
         for &(node_id, node_type) in &response.path_trace {
             self.network_topology.add_node(node_id, node_type);
         }
@@ -88,18 +88,18 @@ impl CommunicationServer {
 
         // Check for pending messages and fragments that can now be sent
         for &(node_id, _) in &response.path_trace {
-            if self.pending_messages_queue.has_pending_messages(&node_id) {
-                if let Some(messages) = self.pending_messages_queue.take_pending_messages(&node_id)
+            if self.pending_messages_queue.has_pending_messages(node_id) {
+                if let Some(messages) = self.pending_messages_queue.take_pending_messages(node_id)
                 {
                     for message in messages {
                         self.send_message(message, node_id);
                     }
                 }
             }
-            if self.session_manager.hash_waiting_fragments(&node_id) {
-                if let Some(fragments) = self.session_manager.take_waiting_fragments(&node_id) {
+            if self.session_manager.hash_waiting_fragments(node_id) {
+                if let Some(fragments) = self.session_manager.take_waiting_fragments(node_id) {
                     for (fragment_index, session_id) in fragments {
-                        self.recover_fragment(session_id, fragment_index)
+                        self.recover_fragment(session_id, fragment_index);
                     }
                 }
             }
@@ -133,7 +133,7 @@ impl CommunicationServer {
             session_id,
         };
 
-        for (_, sender) in self.packet_send.iter() {
+        for sender in self.packet_send.values() {
             sender
                 .send(flood_request_packet.clone())
                 .expect("Error in send");
@@ -238,18 +238,18 @@ mod tests {
         assert!(!server.network_topology.contains_type(&25));
         assert!(!server.network_topology.contains_type(&26));
 
-        server.handle_flood_response(flood_response);
+        server.handle_flood_response(&flood_response);
 
         assert!(server.network_topology.contains_node(25));
         assert!(server.network_topology.contains_node(26));
         assert!(server.network_topology.contains_edge(2, 25));
         assert!(server.network_topology.contains_edge(25, 26));
         assert_eq!(
-            server.network_topology.get_node_type(&25),
+            server.network_topology.get_node_type(25),
             Some(&NodeType::Drone)
         );
         assert_eq!(
-            server.network_topology.get_node_type(&26),
+            server.network_topology.get_node_type(26),
             Some(&NodeType::Client)
         );
     }
@@ -260,8 +260,8 @@ mod tests {
         let mut server = helper.server;
         server.network_topology.remove_node(6);
         server.send_message(Message::Server(ErrUnsupportedRequestType), 6);
-        assert!(server.pending_messages_queue.has_pending_messages(&6));
-        server.handle_flood_response(FloodResponse {
+        assert!(server.pending_messages_queue.has_pending_messages(6));
+        server.handle_flood_response(&FloodResponse {
             flood_id: 1,
             path_trace: vec![
                 (1, NodeType::Server),
@@ -269,7 +269,7 @@ mod tests {
                 (6, NodeType::Client),
             ],
         });
-        assert!(!server.pending_messages_queue.has_pending_messages(&6));
+        assert!(!server.pending_messages_queue.has_pending_messages(6));
         let flood_req = helper.packet_recv_3.recv().unwrap();
         match flood_req.pack_type {
             PacketType::FloodRequest(_) => {
@@ -330,7 +330,7 @@ mod tests {
         }
         assert!(!server.network_topology.contains_edge(3, 6));
 
-        assert!(server.session_manager.hash_waiting_fragments(&6));
+        assert!(server.session_manager.hash_waiting_fragments(6));
 
         for _ in 0..3 {
             let flood_req = helper.packet_recv_3.try_recv().unwrap();
@@ -354,8 +354,8 @@ mod tests {
                 (6, NodeType::Client),
             ],
         };
-        server.handle_flood_response(flood_response);
-        assert!(!server.session_manager.hash_waiting_fragments(&6));
+        server.handle_flood_response(&flood_response);
+        assert!(!server.session_manager.hash_waiting_fragments(6));
 
         for _ in 0..3 {
             let packet = helper.packet_recv_3.try_recv().unwrap();
