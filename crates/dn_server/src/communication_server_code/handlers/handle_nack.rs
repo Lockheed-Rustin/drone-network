@@ -63,9 +63,6 @@ impl CommunicationServer {
                     .already_dropped
                     .contains(&(session_id, nack.fragment_index))
                 {
-                    self.session_manager
-                        .already_dropped
-                        .remove(&(session_id, nack.fragment_index));
                     self.recover_after_nack(session_id, nack.fragment_index, true);
                 } else {
                     self.session_manager
@@ -188,6 +185,7 @@ impl CommunicationServer {
 mod tests {
     use super::*;
     use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use wg_2024::packet::Ack;
     #[test]
     fn test_handle_nack() {
         let mut test_server_helper = TestServerHelper::new();
@@ -336,7 +334,7 @@ mod tests {
             40
         );
 
-        test_server_helper.server.handle_packet(packet);
+        test_server_helper.server.handle_packet(packet.clone());
         assert!(!test_server_helper
             .server
             .session_manager
@@ -348,6 +346,17 @@ mod tests {
             .try_recv()
             .expect("No recover packet received on channel 3");
 
+        test_server_helper.server.handle_packet(packet);
+        let (packet, session_id) = TestServerHelper::test_received_packet(
+            PacketType::Ack(Ack { fragment_index }),
+            vec![6, 3, 1],
+        );
+        test_server_helper.server.handle_packet(packet);
+        assert!(!test_server_helper
+            .server
+            .session_manager
+            .already_dropped
+            .contains(&(session_id, fragment_index)));
         // UNEXPECTED RECIPIENT
         // nothing to do
     }

@@ -142,6 +142,8 @@ impl CommunicationServer {
                 .send(ServerEvent::PacketSent(flood_request_packet.clone()))
                 .expect("Error in controller_send");
         }
+
+        self.session_manager.already_dropped.clear();
     }
 }
 

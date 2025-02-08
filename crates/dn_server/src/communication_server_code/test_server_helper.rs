@@ -8,6 +8,7 @@ use rand::Rng;
 use std::collections::HashMap;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Fragment, NodeType, Packet, PacketType};
+use crate::communication_server_code::session_manager::SessionId;
 
 pub struct TestServerHelper {
     pub server: CommunicationServer,
@@ -88,7 +89,7 @@ impl TestServerHelper {
         communication_server.network_topology = topology;
     }
 
-    pub fn test_received_packet(packet_type: PacketType, hops: Vec<NodeId>) -> (Packet, u64) {
+    pub fn test_received_packet(packet_type: PacketType, hops: Vec<NodeId>) -> (Packet, SessionId) {
         let session_id: u64 = rand::rng().random_range(0..=100);
         (
             Packet {
