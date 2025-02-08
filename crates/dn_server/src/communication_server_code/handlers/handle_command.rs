@@ -20,12 +20,11 @@ impl CommunicationServer {
         match command {
             ServerCommand::AddSender(node_id, sender) => {
                 self.packet_send.insert(node_id, sender);
-                self.update_network_topology();
+                self.network_topology.add_edge(self.id, node_id);
             }
             ServerCommand::RemoveSender(node_id) => {
                 self.packet_send.remove(&node_id);
                 self.network_topology.remove_node(node_id);
-                self.update_network_topology();
             }
             ServerCommand::Return => {
                 self.running = false;

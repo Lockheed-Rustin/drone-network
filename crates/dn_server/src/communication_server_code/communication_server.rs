@@ -12,6 +12,7 @@ use wg_2024::packet::Packet;
 // TODO: use reference when possible
 // TODO: use shortcuts in case there is not a path (just for ack/nack?)
 
+// TODO: session manager already dropped docs
 // TODO: MESSAGGIO ERRORE E CONFERMA
 pub struct CommunicationServer {
     pub(crate) controller_send: Sender<ServerEvent>,
