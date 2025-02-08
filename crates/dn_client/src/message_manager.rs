@@ -18,11 +18,19 @@ pub struct MessageManager {
     communication_servers: HashMap<NodeId, bool>, //server_id -> already logged
     content_servers: HashSet<NodeId>,
 
-    unsended_messages: HashMap<NodeId, Vec<ClientBody>>,
+    unsent_messages: HashMap<NodeId, Vec<ClientBody>>,
+}
+
+impl Default for MessageManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 
+
 impl MessageManager {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             //pending_sessions: HashMap::new(),
@@ -31,10 +39,12 @@ impl MessageManager {
 
             communication_servers: HashMap::new(),
             content_servers: HashSet::new(),
-            unsended_messages: HashMap::new(),
+            unsent_messages: HashMap::new(),
         }
     }
 
+
+    #[must_use]
     pub fn is_invalid_send(&self, client_body: &ClientBody, dest: NodeId) -> Option<ServerTypeError> {
         match client_body {
             ClientBody::ReqServerType => {
@@ -66,6 +76,7 @@ impl MessageManager {
         }
     }
 
+    #[must_use]
     pub fn is_reg_to_comm(&self, dest: NodeId) -> bool {
         matches!(self.communication_servers.get(&dest), Some(&subscribed) if subscribed)
     }
@@ -81,23 +92,24 @@ impl MessageManager {
         }
     }
 
-    pub fn add_unsended_message(&mut self, client_body: &ClientBody, dest: NodeId) {
-        let unsendeds = self.unsended_messages.entry(dest).or_default();
-        unsendeds.push(client_body.clone());
+    pub fn add_unsent_message(&mut self, client_body: &ClientBody, dest: NodeId) {
+        let unsents = self.unsent_messages.entry(dest).or_default();
+        unsents.push(client_body.clone());
     }
 
-    pub fn get_unsended_message(&mut self, dest: NodeId) -> Option<Vec<ClientBody>> {
-        self.unsended_messages.remove(&dest)
+    #[must_use]
+    pub fn get_unsent_message(&mut self, dest: NodeId) -> Option<Vec<ClientBody>> {
+        self.unsent_messages.remove(&dest)
     }
-
-    pub fn is_there_unsended_message(&self, dest: NodeId) -> bool {
-        self.unsended_messages.contains_key(&dest)
+    #[must_use]
+    pub fn is_there_unsent_message(&self, dest: NodeId) -> bool {
+        self.unsent_messages.contains_key(&dest)
     }
 
     /*
-    pub fn add_unsended_fragment(&mut self, dest: NodeId, session_id: u64, fragment: Fragment) {
-        let unsendeds = self.unsendable_fragments.entry(dest).or_default();
-        unsendeds.push((session_id, fragment));
+    pub fn add_unsent_fragment(&mut self, dest: NodeId, session_id: u64, fragment: Fragment) {
+        let unsents = self.unsendable_fragments.entry(dest).or_default();
+        unsents.push((session_id, fragment));
     }
     */
 

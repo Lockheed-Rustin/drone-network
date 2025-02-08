@@ -33,6 +33,7 @@ pub struct Client {
 }
 
 impl Client {
+    #[must_use]
     pub fn new(
         id: NodeId,
         controller_send: Sender<ClientEvent>,
@@ -117,7 +118,7 @@ impl Client {
             }
 
             PacketType::Nack(nack) => {
-                self.handle_nack(&nack, &packet.routing_header, packet.session_id)
+                self.handle_nack(&nack, &packet.routing_header, packet.session_id);
 
             }
 
@@ -152,7 +153,7 @@ impl Client {
                         let mut path = packet.routing_header
                             .hops
                             .iter()
-                            .cloned()
+                            .copied()
                             .take(packet.routing_header.hop_index)
                             .rev()
                             .collect::<Vec<_>>();
@@ -197,19 +198,19 @@ impl Client {
             self.packet_send.insert(n, sender);
 
             if let Some(servers_became_reachable) = self.source_routing.add_channel_to_neighbor(n) {
-                self.send_unsended(servers_became_reachable);
+                self.send_unsent(servers_became_reachable);
             }
         }
     }
 
 
     //---------- send ----------//
-    fn send_unsended(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
+    fn send_unsent(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
         for (server, path) in servers {
             if path.len() >= 2 {
-                if let Some(unsendeds) = self.unsendable_fragments.remove(&server) {
+                if let Some(unsents) = self.unsendable_fragments.remove(&server) {
 
-                    for (session_id, fragment) in unsendeds {
+                    for (session_id, fragment) in unsents {
                         let packet = Packet {
                             routing_header: SourceRoutingHeader {
                                 hop_index: 0,
@@ -242,7 +243,7 @@ impl Client {
         //add fragments to pending session
         let mut pending_fragment: PendingFragments = HashMap::new();
 
-        for fragment in fragments.iter() {
+        for fragment in &fragments {
                 pending_fragment.insert(fragment.fragment_index, fragment.clone());
         }
 
@@ -280,7 +281,7 @@ impl Client {
 
         self.already_dropped.clear();
 
-        for (_, sender) in self.packet_send.iter() {
+        for sender in self.packet_send.values() {
             sender
                 .send(flood_request_packet.clone())
                 .expect("Error in send");
@@ -309,8 +310,8 @@ impl Client {
             true
         }
         else {
-            let unsendeds = self.unsendable_fragments.entry(dest).or_default();
-            unsendeds.push((session_id, fragment));
+            let unsents = self.unsendable_fragments.entry(dest).or_default();
+            unsents.push((session_id, fragment));
 
             false
         }
@@ -339,7 +340,7 @@ impl Client {
         if let Some(err) = self.message_manager.is_invalid_send(&client_body, dest) {
             match err {
                 ServerTypeError::ServerTypeUnknown => {
-                    self.message_manager.add_unsended_message(&client_body, dest);
+                    self.message_manager.add_unsent_message(&client_body, dest);
 
                     self.send_message(ClientBody::ReqServerType, dest);
                 }
@@ -361,7 +362,7 @@ impl Client {
                         self.send_message(client_body, dest);
                     }
                     else {
-                        self.message_manager.add_unsended_message(&client_body, dest);
+                        self.message_manager.add_unsent_message(&client_body, dest);
 
                         self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), dest);
                     }
@@ -384,7 +385,7 @@ impl Client {
         let ack = Packet {
             routing_header: SourceRoutingHeader{
                 hop_index: 0,
-                hops: header.hops.iter().cloned().rev().collect::<Vec<_>>(),
+                hops: header.hops.iter().copied().rev().collect::<Vec<_>>(),
             },
             session_id,
             pack_type: PacketType::Ack(Ack{
@@ -409,13 +410,13 @@ impl Client {
 
                     match server_type {
                         ServerType::Communication if !self.message_manager.is_reg_to_comm(sender) => {
-                            if self.message_manager.is_there_unsended_message(sender) {
+                            if self.message_manager.is_there_unsent_message(sender) {
                                 self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), sender);
                             }
                         }
                         _ => {
-                            if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
-                                for client_body in unsended {
+                            if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
+                                for client_body in unsent {
                                     self.send_message(client_body, sender);
                                 }
                             }
@@ -431,8 +432,8 @@ impl Client {
                             self.send_message(ClientBody::ClientCommunication(ClientCommunicationBody::ReqRegistrationToChat), sender);
                         }
                         ServerCommunicationBody::RegistrationSuccess => {
-                            if let Some(unsended) = self.message_manager.get_unsended_message(sender) {
-                            for client_body in unsended {
+                            if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
+                            for client_body in unsent {
                                 self.send_message(client_body, sender);
                                 }
                             }
@@ -447,7 +448,7 @@ impl Client {
 
     fn handle_flood_response(&mut self, flood_response: &FloodResponse) {
         if let Some(servers_became_reachable) = self.source_routing.add_path(&flood_response.path_trace) {
-            self.send_unsended(servers_became_reachable);
+            self.send_unsent(servers_became_reachable);
         }
     }
 
@@ -481,7 +482,7 @@ impl Client {
                 self.source_routing.correct_exchanged_with(&header.hops);
 
                 self.send_flood_request();
-                //in this scenario, fragment will be added to the unsendeds fragments
+                //in this scenario, fragment will be added to the unsents fragments
             }
             NackType::Dropped => {
                 self.source_routing.inc_packet_dropped(&header.hops);

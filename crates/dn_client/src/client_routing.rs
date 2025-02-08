@@ -75,8 +75,10 @@ pub struct DroneInfo {
 
 impl DroneInfo {
 
-    /// real_packet_sent_factor
+    /// `rps_factor`: real packet sent factor
     /// Returns the estimated number of packet to send for every packet which has been delivered
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn rps_factor(&self) -> f64 {
         if self.packet_traveled == 0 || self.packet_dropped == 0 {
             1.0
@@ -114,6 +116,7 @@ pub struct ClientRouting {
 }
 
 impl ClientRouting {
+    #[must_use]
     pub fn new(client_id: NodeId) -> Self {
         let mut topology: UnGraphMap::<NodeId, ()> =  UnGraphMap::new();
         topology.add_node(client_id);
@@ -136,7 +139,7 @@ impl ClientRouting {
         self.topology.clear();
         self.topology.add_node(self.client_id);
 
-        for (_, server_info) in self.servers_info.iter_mut() {
+        for server_info in self.servers_info.values_mut()  {
             server_info.reachable = false;
         }
 
@@ -179,44 +182,48 @@ impl ClientRouting {
     pub fn add_path(&mut self, path: &FloodPath) -> Option<Vec<(NodeId, Path)>>  {
         //check if path is empty and
         let mut iter = path.iter();
-        let mut last = match iter.next() {
-            Some(&(node, _)) => node, //first node this case (client itself)
-            None => return None, //Case empty path
-        };
 
-        let mut something_changed = false;
-        for &(node, node_type) in iter {
-            //add new nodes to topology
-            if !self.topology.contains_node(node) {
-                self.topology.add_node(node);
-                match &node_type {
-                    NodeType::Drone => {
-                        self.drones_info.entry(node).or_default();
+        match &iter.next() {
+            None => {
+                None
+            }
+
+            Some((mut last, _)) => {
+                let mut something_changed = false;
+                for &(node, node_type) in iter {
+                    //add new nodes to topology
+                    if !self.topology.contains_node(node) {
+                        self.topology.add_node(node);
+                        match &node_type {
+                            NodeType::Drone => {
+                                self.drones_info.entry(node).or_default();
+                            }
+                            NodeType::Server => {
+                                self.servers_info.entry(node).or_default();
+                            }
+                            NodeType::Client => {
+                                self.clients.insert(node);
+                            }
+                        }
+                        something_changed = true;
                     }
-                    NodeType::Server => {
-                        self.servers_info.entry(node).or_default();
+
+                    //add new edges to topology
+                    if !self.topology.contains_edge(node, last) {
+                        self.topology.add_edge(node, last, ());
+                        something_changed = true;
                     }
-                    NodeType::Client => {
-                        self.clients.insert(node);
-                    }
+                    last = node;
                 }
-                something_changed = true;
-            }
 
-            //add new edges to topology
-            if !self.topology.contains_edge(node, last) {
-                self.topology.add_edge(node, last, ());
-                something_changed = true;
+                //no need to recompute path if nothing has been changed
+                if something_changed {
+                    self.compute_routing_paths()
+                }
+                else {
+                    None
+                }
             }
-            last = node;
-        }
-
-        //no need to recompute path if nothing has been changed
-        if something_changed {
-            self.compute_routing_paths()
-        }
-        else {
-            None
         }
     }
 
@@ -229,7 +236,7 @@ impl ClientRouting {
     }
 
     pub fn correct_exchanged_with(&mut self, path: &Path) {
-        for drone in path.iter() {
+        for drone in path {
             if let Some(drone_info) = self.drones_info.get_mut(drone) {
                 drone_info.inc_correct_traveled();
             }
@@ -260,6 +267,7 @@ impl ClientRouting {
     ///
     /// If the destination server doesn't exist in the topology or the server os actually unreachable,
     /// returns an appropriate error
+    #[must_use]
     pub fn get_path(&self, destination: NodeId) -> Option<Path> {
         match self.servers_info.get(&destination) {
             Some(server_info) if server_info.reachable => {
@@ -320,24 +328,33 @@ impl ClientRouting {
         }
 
         //compute single path for every server
-        for (&server, server_info) in self.servers_info.iter_mut() {
+        for (&server, server_info) in &mut self.servers_info {
             if visited.contains(&server) {
                 let mut path: Path = Vec::new();
                 path.push(server);
                 let mut last = server;
 
-                while last != self.client_id {
-                    let (pred, _) = distances.get(&last).unwrap();
-                    path.push(*pred);
-                    last = *pred;
+                let mut pathable = true;
+
+                while last != self.client_id && pathable {
+                    if let Some((pred, _)) = distances.get(&last) {
+                        path.push(*pred);
+                        last = *pred;
+                    }
+                    else {
+                        pathable = false;
+                    }
                 }
-                path.reverse();
 
-                server_info.path = path.clone();
+                if pathable {
+                    path.reverse();
 
-                if !server_info.reachable {
-                    server_info.reachable = true;
-                    servers_became_reachable.push((server, path.clone()));
+                    server_info.path.clone_from(&path);
+
+                    if !server_info.reachable {
+                        server_info.reachable = true;
+                        servers_became_reachable.push((server, path.clone()));
+                    }
                 }
             }
             else {
