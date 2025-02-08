@@ -342,7 +342,9 @@ impl Client {
     fn handle_ack(&mut self, ack: &Ack, header: &SourceRoutingHeader, session_id: u64) {
         if header.hops.len() < 2 {return;}
 
-        let &server = header.hops.first().expect("Unreachable");
+        let &server = header.hops.first().unwrap();
+
+        self.already_dropped.remove(&(session_id, ack.fragment_index));
 
         self.source_routing.correct_send_to(server);
 
