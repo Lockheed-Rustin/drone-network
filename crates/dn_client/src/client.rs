@@ -423,9 +423,6 @@ impl Client {
                         }
                     }
                 }
-                ServerBody::ServerContent(_) => {
-                    //TODO: capire cosa devo fare con daniele
-                }
                 ServerBody::ServerCommunication(comm_server_body) => {
                     match comm_server_body {
                         ServerCommunicationBody::ErrNotRegistered => {
@@ -441,7 +438,7 @@ impl Client {
                         _ => {}
                     }
                 }
-                ServerBody::ErrUnsupportedRequestType => {}
+                _ => {}
             }
         }
     }
