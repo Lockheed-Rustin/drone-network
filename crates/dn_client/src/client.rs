@@ -395,6 +395,14 @@ impl Client {
         self.send_packet(ack);
 
         if let Some(Message::Server(server_body)) = self.assembler.handle_fragment(fragment, sender, session_id) {
+            self.controller_send
+                .send(ClientEvent::MessageAssembled{
+                    body: server_body.clone(),
+                    from: sender,
+                    to: self.id,
+                })
+                .expect("Error in controller_send");
+
             match &server_body {
                 ServerBody::RespServerType(server_type) => {
                     self.message_manager.add_server_type(sender, server_type);
@@ -425,14 +433,6 @@ impl Client {
                 }
                 ServerBody::ErrUnsupportedRequestType => {}
             }
-
-            self.controller_send
-                .send(ClientEvent::MessageAssembled{
-                    body: server_body,
-                    from: sender,
-                    to: self.id,
-                })
-                .expect("Error in controller_send");
         }
     }
 
