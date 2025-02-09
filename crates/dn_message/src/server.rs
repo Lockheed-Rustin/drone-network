@@ -24,6 +24,12 @@ pub enum ServerContentBody {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+pub enum FileType {
+    Image,
+    Text,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub enum ServerCommunicationBody {
     RespClientList(Vec<NodeId>),
     MessageReceive(CommunicationMessage),
