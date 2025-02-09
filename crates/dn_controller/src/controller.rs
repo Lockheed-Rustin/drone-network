@@ -240,20 +240,6 @@ impl SimulationController {
         sender.send(p).ok()
     }
 
-    // TODO: remove this after the fair
-    pub fn send_fragment_fair(&self, id: NodeId) -> Option<()> {
-        let sender = self.get_client_sender(id)?;
-        sender.send(ClientCommand::SendFragment).ok()?;
-        Some(())
-    }
-
-    // TODO: remove this after the fair
-    pub fn send_flood_request_fair(&self, id: NodeId) -> Option<()> {
-        let sender = self.get_client_sender(id)?;
-        sender.send(ClientCommand::SendFloodRequest).ok()?;
-        Some(())
-    }
-
     pub fn get_topology(&self) -> &Topology {
         &self.topology
     }

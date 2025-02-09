@@ -5,20 +5,17 @@ use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody,
     ServerType,
 };
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType,
 };
 use wg_2024::{network::NodeId, packet::Packet};
 
-
 pub enum PathError {
     UnexpectedRecipient,
     InvalidPath,
 }
-
-
 
 pub struct Client {
     pub id: NodeId,
@@ -111,7 +108,6 @@ impl Client {
             return;
         }
 
-
         match packet.pack_type {
             PacketType::MsgFragment(fragment) => {
                 self.handle_fragment(&fragment, &packet.routing_header, packet.session_id);
@@ -149,27 +145,23 @@ impl Client {
                         if curr_hop == self.id {
                             if packet.routing_header.is_last_hop() {
                                 Ok(())
-                            }
-                            else {
+                            } else {
                                 Err(PathError::InvalidPath)
                             }
-                        }
-                        else {
+                        } else {
                             Err(PathError::UnexpectedRecipient)
                         }
-
-                    },
+                    }
                     None => Err(PathError::InvalidPath),
                 }
             }
             _ => {
                 if packet.routing_header.len() > 1 {
                     Ok(())
-                }
-                else {
+                } else {
                     Err(PathError::InvalidPath)
                 }
-            },
+            }
         }
     }
 
@@ -256,7 +248,8 @@ impl Client {
             })
             .expect("Error in controller_send");
 
-        self.message_manager.add_pending_session(self.session_id, dest, &fragments);
+        self.message_manager
+            .add_pending_session(self.session_id, dest, &fragments);
 
         let mut pkt_not_sended = false;
         for fragment in fragments {
@@ -318,7 +311,8 @@ impl Client {
 
             true
         } else {
-            self.message_manager.add_unsent_fragment(session_id, dest, &fragment);
+            self.message_manager
+                .add_unsent_fragment(session_id, dest, &fragment);
 
             false
         }
@@ -485,10 +479,10 @@ impl Client {
 
         let &server = header.hops.first().unwrap();
 
-        self.message_manager.confirm_ack(session_id, ack.fragment_index);
+        self.message_manager
+            .confirm_ack(session_id, ack.fragment_index);
 
         self.source_routing.correct_send_to(server);
-
     }
 
     fn handle_nack(&mut self, nack: &Nack, header: &SourceRoutingHeader, session_id: u64) {
@@ -509,7 +503,10 @@ impl Client {
             NackType::Dropped => {
                 self.source_routing.inc_packet_dropped(&header.hops);
 
-                if self.message_manager.update_fragment_dropped(session_id, nack.fragment_index) {
+                if self
+                    .message_manager
+                    .update_fragment_dropped(session_id, nack.fragment_index)
+                {
                     self.send_flood_request();
                 }
             }
@@ -518,7 +515,10 @@ impl Client {
             }
         }
 
-        if let Some((dest, fragment)) = self.message_manager.get_pending_fragment(session_id, nack.fragment_index) {
+        if let Some((dest, fragment)) = self
+            .message_manager
+            .get_pending_fragment(session_id, nack.fragment_index)
+        {
             self.send_fragment(dest, fragment.clone(), session_id);
         }
     }
