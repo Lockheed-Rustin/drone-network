@@ -6,7 +6,7 @@ use dn_controller::{
     SimulationControllerOptions, Topology,
 };
 use dn_server::content_server::ContentServer;
-use dn_server::{communication_server::CommunicationServer, content_server::ServerOptions};
+use dn_server::{communication_server::CommunicationServer, content_server::ContentServerOptions};
 use petgraph::prelude::{DiGraphMap, UnGraphMap};
 use rayon::{
     iter::{IntoParallelIterator, ParallelIterator},
@@ -241,7 +241,7 @@ fn server_options(
                     id,
                 ))
             } else {
-                Server::ContentServer(ContentServer::new(ServerOptions {
+                Server::ContentServer(ContentServer::new(ContentServerOptions {
                     id,
                     controller_send,
                     controller_recv,
