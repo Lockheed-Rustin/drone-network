@@ -84,7 +84,7 @@ impl Routing {
         let session_id = packet.session_id;
         match path {
             Some((_, hops)) => {
-                packet.routing_header = SourceRoutingHeader { hop_index: 1, hops };
+                packet.routing_header = SourceRoutingHeader { hop_index: 0, hops };
                 self.send_packet(packet.clone());
                 self.pending_ack
                     .insert((session_id, fragment_index), (packet, dst));
