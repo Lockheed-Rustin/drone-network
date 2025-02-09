@@ -11,7 +11,7 @@
 //! - **`recover_fragment`**: Attempts to retrieve a missing or dropped message fragment, either by
 //!                           retransmitting it or re-initiating the routing process.
 
-use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::comm_server_main::CommunicationServer;
 use crate::communication_server::session_manager::{FragmentIndex, SessionId};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};

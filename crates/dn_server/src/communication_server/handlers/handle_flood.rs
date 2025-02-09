@@ -4,7 +4,7 @@
 //! helps in propagating network information across nodes to maintain a consistent view of the
 //! network topology for routing and communication purposes.
 
-use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::comm_server_main::CommunicationServer;
 use dn_controller::ServerEvent;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet, PacketType};

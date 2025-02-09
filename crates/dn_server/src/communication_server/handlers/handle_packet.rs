@@ -3,7 +3,7 @@
 //! acknowledgments, and flood-related requests or responses. The simulation controller is notified
 //! about each received packet.
 
-use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::comm_server_main::CommunicationServer;
 use dn_controller::ServerEvent;
 use wg_2024::packet::{Nack, NackType, Packet, PacketType};
 

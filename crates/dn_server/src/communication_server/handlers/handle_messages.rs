@@ -4,7 +4,7 @@
 //! messages based on their type, and sending acknowledgments and full messages to clients or servers.
 //! Additionally, it handles the sending of fragmented messages using source routing.
 
-use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::comm_server_main::CommunicationServer;
 use crate::communication_server::session_manager::SessionId;
 use dn_controller::ServerEvent;
 use dn_message::Message;
