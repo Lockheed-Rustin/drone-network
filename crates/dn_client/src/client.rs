@@ -5,15 +5,12 @@ use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody,
     ServerType,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType,
 };
 use wg_2024::{network::NodeId, packet::Packet};
-
-//---------- CUSTOM TYPES ----------//
-type PendingFragments = HashMap<u64, Fragment>;
 
 pub struct Client {
     pub id: NodeId,
@@ -26,13 +23,7 @@ pub struct Client {
     pub flood_id: u64,
     pub assembler: Assembler,
     pub source_routing: ClientRouting,
-
-    //NOTE: assembler manages incoming messages and rebuild them;
-    //      following structures manage sent messages
     message_manager: MessageManager,
-    pending_sessions: HashMap<u64, (NodeId, PendingFragments)>, // (dest, session_id) -> (fragment_index -> fragment)
-    unsendable_fragments: HashMap<NodeId, Vec<(u64, Fragment)>>, // dest -> Vec<(session_id, fragment)>
-    already_dropped: HashSet<(u64, u64)>,
 }
 
 impl Client {
@@ -61,9 +52,6 @@ impl Client {
             assembler: Assembler::new(),
             source_routing,
             message_manager: MessageManager::new(),
-            pending_sessions: HashMap::new(),
-            unsendable_fragments: HashMap::new(),
-            already_dropped: HashSet::new(),
         }
     }
 
@@ -108,7 +96,7 @@ impl Client {
             .send(ClientEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
 
-        if !self.is_valid_packet(&packet) {
+        if !self.check_routing(&packet) {
             //packet is only traveling through me
             return;
         }
@@ -137,7 +125,7 @@ impl Client {
     }
 
     //---------- check routing ----------//
-    fn is_valid_packet(&self, packet: &Packet) -> bool {
+    fn check_routing(&self, packet: &Packet) -> bool {
         match packet.pack_type {
             PacketType::FloodRequest(_) => true,
             PacketType::MsgFragment(_) => {
@@ -206,7 +194,7 @@ impl Client {
     fn send_unsent(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
         for (server, path) in servers {
             if path.len() >= 2 {
-                if let Some(unsents) = self.unsendable_fragments.remove(&server) {
+                if let Some(unsents) = self.message_manager.get_unsent_fragments(server) {
                     for (session_id, fragment) in unsents {
                         let packet = Packet {
                             routing_header: SourceRoutingHeader {
@@ -238,15 +226,7 @@ impl Client {
             })
             .expect("Error in controller_send");
 
-        //add fragments to pending session
-        let mut pending_fragment: PendingFragments = HashMap::new();
-
-        for fragment in &fragments {
-            pending_fragment.insert(fragment.fragment_index, fragment.clone());
-        }
-
-        self.pending_sessions
-            .insert(self.session_id, (dest, pending_fragment));
+        self.message_manager.add_pending_fragments(self.session_id, dest, &fragments);
 
         let mut pkt_not_sended = false;
         for fragment in fragments {
@@ -278,7 +258,7 @@ impl Client {
         self.flood_id += 1;
         self.session_id += 1;
 
-        self.already_dropped.clear();
+        self.message_manager.reset_already_dropped();
 
         for sender in self.packet_send.values() {
             sender
@@ -308,8 +288,7 @@ impl Client {
 
             true
         } else {
-            let unsents = self.unsendable_fragments.entry(dest).or_default();
-            unsents.push((session_id, fragment));
+            self.message_manager.add_unsent_fragment(session_id, dest, fragment);
 
             false
         }
@@ -476,17 +455,10 @@ impl Client {
 
         let &server = header.hops.first().unwrap();
 
-        self.already_dropped
-            .remove(&(session_id, ack.fragment_index));
+        self.message_manager.confirm_ack(session_id, ack.fragment_index);
 
         self.source_routing.correct_send_to(server);
 
-        if let Some((_, pending_fragment)) = self.pending_sessions.get_mut(&session_id) {
-            pending_fragment.remove(&ack.fragment_index);
-            if pending_fragment.is_empty() {
-                self.pending_sessions.remove(&session_id);
-            }
-        }
     }
 
     fn handle_nack(&mut self, nack: &Nack, header: &SourceRoutingHeader, session_id: u64) {
@@ -507,14 +479,8 @@ impl Client {
             NackType::Dropped => {
                 self.source_routing.inc_packet_dropped(&header.hops);
 
-                if self
-                    .already_dropped
-                    .contains(&(session_id, nack.fragment_index))
-                {
+                if self.message_manager.update_fragment_dropped(session_id, nack.fragment_index) {
                     self.send_flood_request();
-                } else {
-                    self.already_dropped
-                        .insert((session_id, nack.fragment_index));
                 }
             }
             NackType::UnexpectedRecipient(_) => {
@@ -522,11 +488,8 @@ impl Client {
             }
         }
 
-        if let Some((dest, pend_fragment)) = self.pending_sessions.get(&session_id) {
-            if let Some(fragment) = pend_fragment.get(&nack.fragment_index) {
-                //nack is for a "not-acked" fragment
-                self.send_fragment(*dest, fragment.clone(), session_id);
-            }
+        if let Some((dest, fragment)) = self.message_manager.get_pending_fragment(session_id, nack.fragment_index) {
+            self.send_fragment(dest, fragment.clone(), session_id);
         }
     }
 
@@ -626,7 +589,7 @@ mod tests {
             0,
             FloodRequest::initialize(0, 1, NodeType::Client),
         );
-        assert!(client.is_valid_packet(&flood_request));
+        assert!(client.check_routing(&flood_request));
 
         let ack_short_ = Packet::new_ack(
             SourceRoutingHeader {
@@ -636,7 +599,7 @@ mod tests {
             0,
             0,
         );
-        assert!(!client.is_valid_packet(&ack_short_));
+        assert!(!client.check_routing(&ack_short_));
 
         let fragment_short_ = Packet::new_fragment(
             SourceRoutingHeader {
@@ -646,7 +609,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.is_valid_packet(&fragment_short_));
+        assert!(!client.check_routing(&fragment_short_));
 
         let valid_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -656,7 +619,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(client.is_valid_packet(&valid_fragment));
+        assert!(client.check_routing(&valid_fragment));
 
         let travel_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -666,7 +629,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.is_valid_packet(&travel_fragment));
+        assert!(!client.check_routing(&travel_fragment));
 
         let not_for_me_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -676,7 +639,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.is_valid_packet(&not_for_me_fragment));
+        assert!(!client.check_routing(&not_for_me_fragment));
         match recv_3.recv() {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
