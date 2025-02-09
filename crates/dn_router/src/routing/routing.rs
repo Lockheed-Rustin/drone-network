@@ -70,11 +70,10 @@ impl Routing {
             |n| n == dst,
             |e| {
                 let id = e.source();
-                if let NodeType::Drone = self.node_types[&id] {
-                    self.estimated_pdr
-                        .get(&e.source())
-                        .cloned()
-                        .unwrap_or(DEFAULT_PDR)
+                if id == self.id {
+                    0.0
+                } else if let NodeType::Drone = self.node_types[&id] {
+                    self.estimated_pdr.get(&id).cloned().unwrap_or(DEFAULT_PDR)
                 } else {
                     f32::INFINITY
                 }

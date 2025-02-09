@@ -57,6 +57,7 @@ impl Router {
     }
 
     pub fn run(&mut self) {
+        self.flood();
         loop {
             select_biased! {
                 recv(self.controller_recv) -> command => {
