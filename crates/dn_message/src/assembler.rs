@@ -21,7 +21,7 @@ impl Assembler {
 
     pub fn handle_fragment(
         &mut self,
-        fragment: Fragment,
+        fragment: &Fragment,
         sender_id: NodeId,
         session_id: u64,
     ) -> Option<Message> {
@@ -86,7 +86,7 @@ impl MessageBuffer {
         }
     }
 
-    pub fn add_fragment(&mut self, fragment: Fragment) {
+    pub fn add_fragment(&mut self, fragment: &Fragment) {
         let start_index = MAX_FRAGMENT_SIZE * fragment.fragment_index as usize;
         let end_index = start_index + fragment.length as usize;
 
