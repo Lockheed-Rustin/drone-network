@@ -1,6 +1,7 @@
 use crossbeam_channel::{select_biased, unbounded, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
-use dn_message::Message;
+use dn_message::ClientContentBody;
+use dn_message::{ClientBody, Message, ServerBody, ServerContentBody, ServerType};
 use dn_router::{
     command::{Command, Event},
     Router, RouterOptions,
@@ -21,6 +22,7 @@ pub struct ServerOptions {
 }
 
 pub struct ContentServer {
+    id: NodeId,
     router_opt: RouterOptions,
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
@@ -33,6 +35,7 @@ impl ContentServer {
         let (controller_command_send, controller_command_recv) = unbounded();
         let (controller_event_send, controller_event_recv) = unbounded();
         Self {
+            id: opt.id,
             router_opt: RouterOptions {
                 id: opt.id,
                 node_type: NodeType::Server,
@@ -99,8 +102,13 @@ impl ContentServer {
             Event::MessageAssembled { body, from, to } => {
                 if let Message::Client(body) = body {
                     self.controller_send
-                        .send(ServerEvent::MessageAssembled { body, from, to })
+                        .send(ServerEvent::MessageAssembled {
+                            body: body.clone(),
+                            from,
+                            to,
+                        })
                         .unwrap();
+                    self.handle_client_body(body);
                 }
             }
             Event::MessageFragmented { body, from, to } => {
@@ -115,5 +123,58 @@ impl ContentServer {
                 .send(ServerEvent::PacketSent(packet))
                 .unwrap(),
         };
+    }
+
+    fn handle_client_body(&self, body: ClientBody) {
+        match body {
+            ClientBody::ReqServerType => {
+                self.router_recv
+                    .send(Command::SendMessage(
+                        Message::Server(ServerBody::RespServerType(ServerType::Content)),
+                        self.id,
+                    ))
+                    .unwrap();
+            }
+            ClientBody::ClientContent(body) => match body {
+                ClientContentBody::ReqFilesList => self.req_file_list(),
+                ClientContentBody::ReqFile(file) => self.req_file(&file),
+            },
+            ClientBody::ClientCommunication(_) => {
+                self.router_recv
+                    .send(Command::SendMessage(
+                        Message::Server(ServerBody::ErrUnsupportedRequestType),
+                        self.id,
+                    ))
+                    .unwrap();
+            }
+        }
+    }
+
+    fn req_file_list(&self) {
+        let files = vec!["a", "b", "c"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+
+        self.router_recv
+            .send(Command::SendMessage(
+                Message::Server(ServerBody::ServerContent(ServerContentBody::RespFilesList(
+                    files,
+                ))),
+                self.id,
+            ))
+            .unwrap();
+    }
+
+    fn req_file(&self, _file: &str) {
+        let bytes = vec![099, 105, 097, 111];
+        self.router_recv
+            .send(Command::SendMessage(
+                Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
+                    bytes,
+                ))),
+                self.id,
+            ))
+            .unwrap();
     }
 }

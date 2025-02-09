@@ -1,5 +1,5 @@
 use super::Router;
-use crate::command::Command;
+use crate::command::{Command, Event};
 use dn_message::Message;
 use wg_2024::{
     network::{NodeId, SourceRoutingHeader},
@@ -17,6 +17,13 @@ impl Router {
     pub(crate) fn handle_message(&mut self, msg: Message, dst: NodeId) {
         let session_id = self.inc_session_id();
         let fragments = self.assembler.serialize_message(&msg);
+        self.controller_send
+            .send(Event::MessageFragmented {
+                body: msg,
+                from: self.id,
+                to: dst,
+            })
+            .unwrap();
         for fragment in fragments {
             let fragment_index = fragment.fragment_index;
             self.fragment_queue_send

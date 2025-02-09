@@ -5,6 +5,9 @@ use wg_2024::packet::{Ack, Nack, NackType, Packet, PacketType};
 
 impl Router {
     pub(crate) fn handle_packet(&mut self, packet: Packet) {
+        self.controller_send
+            .send(Event::PacketReceived(packet.clone(), self.id))
+            .unwrap();
         match packet.pack_type {
             PacketType::MsgFragment(_) => self.handle_fragment(packet),
             PacketType::Ack(ref ack) => {
