@@ -39,26 +39,32 @@ impl Router {
                     .handle_fragment(fragment, sender_id, packet.session_id)
             {
                 self.controller_send
-                    .send(Event::MessageAssembled(message))
+                    .send(Event::MessageAssembled {
+                        body: message,
+                        from: packet.routing_header.hops[0],
+                        to: self.id,
+                    })
                     .unwrap();
             }
         }
     }
 
-    // TODO: clear data in Assembler
     pub(crate) fn handle_ack(&mut self, packet: Packet, ack: Ack) {
         self.routing.ack(packet, ack.fragment_index);
     }
 
     pub(crate) fn handle_nack(&mut self, packet: Packet, nack: Nack) {
-        let drop_id = packet.routing_header.hops.last().cloned().unwrap();
         match nack.nack_type {
             NackType::ErrorInRouting(err_id) => {
                 self.routing.crash_node(err_id);
                 self.routing.nack(packet.session_id, nack.fragment_index);
             }
             NackType::Dropped => {
+                let drop_id = packet.routing_header.hops.last().cloned().unwrap();
                 self.routing.update_estimated_pdr(drop_id, true);
+                if self.should_flood() {
+                    self.flood();
+                }
                 self.routing.nack(packet.session_id, nack.fragment_index);
             }
             _ => {

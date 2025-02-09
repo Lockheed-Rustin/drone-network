@@ -30,7 +30,11 @@ impl Router {
     }
 
     pub(crate) fn handle_flood_response(&mut self, flood: FloodResponse) {
-        self.routing
-            .add_path(flood.path_trace.into_iter().map(|(id, _)| id).collect());
+        self.routing.add_path(flood.path_trace);
+    }
+
+    pub(crate) fn should_flood(&mut self) -> bool {
+        self.drop_count = (self.drop_count + 1) % 10;
+        self.drop_count == 0
     }
 }

@@ -12,6 +12,7 @@ pub const ALPHA: f32 = 0.1;
 
 pub type Topology = UnGraphMap<NodeId, ()>;
 
+#[derive(Clone)]
 pub struct RoutingOptions {
     pub id: NodeId,
     pub node_type: NodeType,
@@ -25,6 +26,7 @@ pub struct Routing {
 
     topology: Topology,
     estimated_pdr: HashMap<NodeId, f32>,
+    node_types: HashMap<NodeId, NodeType>,
 
     packet_send: HashMap<NodeId, Sender<Packet>>,
     controller_send: Sender<Event>,
@@ -44,6 +46,7 @@ impl Routing {
             node_type: opt.node_type,
             topology,
             estimated_pdr: HashMap::new(),
+            node_types: HashMap::new(),
             packet_send: opt.packet_send,
             controller_send: opt.controller_send,
             pending_ack: HashMap::new(),
@@ -57,10 +60,15 @@ impl Routing {
             self.id,
             |n| n == dst,
             |e| {
-                self.estimated_pdr
-                    .get(&e.source())
-                    .cloned()
-                    .unwrap_or(DEFAULT_PDR)
+                let id = e.source();
+                if let NodeType::Drone = self.node_types[&id] {
+                    self.estimated_pdr
+                        .get(&e.source())
+                        .cloned()
+                        .unwrap_or(DEFAULT_PDR)
+                } else {
+                    f32::INFINITY
+                }
             },
             |_| 0.0,
         );
@@ -137,10 +145,13 @@ impl Routing {
         *pdr = if dropped { ALPHA } else { 0.0 } + (1.0 - ALPHA) * *pdr;
     }
 
-    pub fn add_path(&mut self, path: Vec<NodeId>) {
+    pub fn add_path(&mut self, path: Vec<(NodeId, NodeType)>) {
+        for (id, node_type) in path.iter().cloned() {
+            self.node_types.insert(id, node_type);
+        }
         let mut updated = false;
         for w in path.windows(2) {
-            if self.topology.add_edge(w[0], w[1], ()).is_none() {
+            if self.topology.add_edge(w[0].0, w[1].0, ()).is_none() {
                 updated = true;
             }
         }

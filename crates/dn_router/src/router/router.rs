@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use wg_2024::network::NodeId;
 use wg_2024::packet::{NodeType, Packet};
 
+#[derive(Clone)]
 pub struct RouterOptions {
     pub id: NodeId,
     pub node_type: NodeType,
@@ -30,6 +31,7 @@ pub struct Router {
     pub(crate) assembler: Assembler,
 
     pub(crate) session_id: u64,
+    pub(crate) drop_count: u64,
 }
 
 impl Router {
@@ -50,6 +52,7 @@ impl Router {
             }),
             assembler: Assembler::new(),
             session_id: 0,
+            drop_count: 0,
         }
     }
 
@@ -86,8 +89,12 @@ impl Router {
     pub(crate) fn send_fragment(&mut self, fragment: Packet, fragment_index: u64, dst: NodeId) {
         let sent = self.routing.send_fragment(fragment, fragment_index, dst);
         if !sent {
-            let session_id = self.inc_session_id();
-            self.routing.send_flood_request(session_id);
+            self.flood();
         }
+    }
+
+    pub(crate) fn flood(&mut self) {
+        let session_id = self.inc_session_id();
+        self.routing.send_flood_request(session_id);
     }
 }

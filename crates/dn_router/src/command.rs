@@ -6,8 +6,16 @@ use wg_2024::packet::Packet;
 pub enum Event {
     // receiver NodeId. Required because it's not present in FloodRequest
     PacketReceived(Packet, NodeId),
-    MessageAssembled(Message),
-    MessageFragmented(Message),
+    MessageAssembled {
+        body: Message,
+        from: NodeId,
+        to: NodeId,
+    },
+    MessageFragmented {
+        body: Message,
+        from: NodeId,
+        to: NodeId,
+    },
     PacketSent(Packet),
 }
 
