@@ -8,11 +8,14 @@ use dn_router::{
 };
 use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use wg_2024::{
     network::NodeId,
     packet::{NodeType, Packet},
 };
+
+const ASSET_DIR: &str = "assets/content_server";
 
 #[derive(Clone)]
 pub struct ContentServerOptions {
@@ -153,14 +156,15 @@ impl ContentServer {
     }
 
     fn req_file_list(&self, from: NodeId) {
-        let files = WalkDir::new("assets/content_server")
+        let files = WalkDir::new(ASSET_DIR)
             .into_iter()
+            .flatten()
             .map(|p| {
-                p.unwrap()
-                    .into_path()
-                    .into_os_string()
-                    .into_string()
+                p.into_path()
+                    .strip_prefix(ASSET_DIR)
                     .unwrap()
+                    .to_string_lossy()
+                    .to_string()
             })
             .collect();
 
@@ -175,7 +179,8 @@ impl ContentServer {
     }
 
     fn req_file(&self, path: &str, from: NodeId) {
-        let bytes = if let Ok(bytes) = fs::read(path) {
+        let full_path = PathBuf::from(ASSET_DIR).join(path);
+        let bytes = if let Ok(bytes) = fs::read(full_path) {
             bytes
         } else {
             vec![]
