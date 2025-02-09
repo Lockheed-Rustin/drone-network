@@ -86,7 +86,7 @@ impl Server {
             ServerCommand::RemoveSender(id) => {
                 self.router_recv.send(Command::RemoveSender(id)).unwrap();
             }
-            ServerCommand::Return => return,
+            ServerCommand::Return => (),
         }
     }
 

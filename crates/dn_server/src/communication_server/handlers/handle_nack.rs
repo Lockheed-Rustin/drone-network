@@ -11,8 +11,8 @@
 //! - **`recover_fragment`**: Attempts to retrieve a missing or dropped message fragment, either by
 //!                           retransmitting it or re-initiating the routing process.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::{FragmentIndex, SessionId};
+use crate::communication_server::communication_server::CommunicationServer;
+use crate::communication_server::session_manager::{FragmentIndex, SessionId};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
@@ -35,18 +35,18 @@ impl CommunicationServer {
     /// - `source_routing_header`: The routing information that identifies the source node.
     pub(crate) fn handle_nack(
         &mut self,
-        nack: Nack,
+        nack: &Nack,
         session_id: SessionId,
-        source_routing_header: SourceRoutingHeader,
+        source_routing_header: &SourceRoutingHeader,
     ) {
         match nack.nack_type {
             NackType::ErrorInRouting(error_node) => {
-                if source_routing_header.hops[0] != error_node {
-                    self.network_topology
-                        .remove_edge(source_routing_header.hops[0], error_node);
-                } else {
+                if source_routing_header.hops[0] == error_node {
                     self.network_topology
                         .remove_edge(source_routing_header.hops[1], error_node);
+                } else {
+                    self.network_topology
+                        .remove_edge(source_routing_header.hops[0], error_node);
                 }
                 self.recover_after_nack(session_id, nack.fragment_index, true);
             }
@@ -60,14 +60,12 @@ impl CommunicationServer {
 
                 if self
                     .session_manager
-                    .already_dropped
-                    .contains(&(session_id, nack.fragment_index))
+                    .already_dropped(session_id, nack.fragment_index)
                 {
                     self.recover_after_nack(session_id, nack.fragment_index, true);
                 } else {
                     self.session_manager
-                        .already_dropped
-                        .insert((session_id, nack.fragment_index));
+                        .already_dropped_insert(session_id, nack.fragment_index);
                     self.recover_after_nack(session_id, nack.fragment_index, false);
                 }
             }
@@ -99,9 +97,9 @@ impl CommunicationServer {
         fragment_index: FragmentIndex,
         send_flood: bool,
     ) {
-        let dest_id = self
+        let dest_id = *self
             .session_manager
-            .get_pending_sessions_destination(&session_id)
+            .get_pending_sessions_destination(session_id)
             .unwrap(); // if a packet was dropped, I'm sure that there is an entry in the HashMap
         self.network_topology.remove_path(dest_id);
         if send_flood {
@@ -136,24 +134,23 @@ impl CommunicationServer {
                 .source_routing(self.id, dest)
                 .expect("Error in routing");
 
-            if !hops.is_empty() {
+            if hops.is_empty() {
+                // I don't know the path to `dest` yet
+                self.session_manager
+                    .add_to_waiting_fragments(dest, fragment_index, session_id);
+            } else {
                 let packet = Packet {
                     routing_header: SourceRoutingHeader { hop_index: 1, hops },
                     session_id,
                     pack_type: PacketType::MsgFragment(fragment),
                 };
                 self.send_packet(packet);
-            } else {
-                // I don't know the path to `dest` yet
-                self.session_manager
-                    .add_to_waiting_fragments(dest, fragment_index, session_id);
             }
         } else {
             panic!(
                 "tried to recover a fragment that is not in the session_manager.\n\
-                    session_id: {}\n\
-                    fragment_index: {}\n",
-                session_id, fragment_index
+                    session_id: {session_id}\n\
+                    fragment_index: {fragment_index}\n"
             );
         }
     }
@@ -184,7 +181,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use wg_2024::packet::Ack;
     #[test]
     fn test_handle_nack() {
@@ -280,12 +277,12 @@ mod tests {
             vec![5, 1],
         );
         assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
+            test_server_helper.server.network_topology.get_node_type(5),
             Some(&NodeType::Client)
         );
         test_server_helper.server.handle_packet(packet);
         assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
+            test_server_helper.server.network_topology.get_node_type(5),
             Some(&NodeType::Drone)
         );
         // reset to client
@@ -294,7 +291,7 @@ mod tests {
             .network_topology
             .update_node_type(5, NodeType::Client);
         assert_eq!(
-            test_server_helper.server.network_topology.get_node_type(&5),
+            test_server_helper.server.network_topology.get_node_type(5),
             Some(&NodeType::Client)
         );
 
@@ -317,8 +314,7 @@ mod tests {
         assert!(test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         let received_packet = test_server_helper
             .packet_recv_3
             .try_recv()
@@ -329,7 +325,7 @@ mod tests {
             test_server_helper
                 .server
                 .network_topology
-                .get_node_cost(&3)
+                .get_node_cost(3)
                 .unwrap(),
             40
         );
@@ -338,8 +334,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
 
         let _received_flood_req = test_server_helper
             .packet_recv_3
@@ -355,8 +350,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         // UNEXPECTED RECIPIENT
         // nothing to do
     }
@@ -403,6 +397,6 @@ mod tests {
         assert!(test_server_helper
             .server
             .session_manager
-            .hash_waiting_fragments(&6));
+            .hash_waiting_fragments(6));
     }
 }

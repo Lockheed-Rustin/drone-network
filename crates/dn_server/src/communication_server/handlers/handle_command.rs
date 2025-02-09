@@ -1,7 +1,7 @@
 //! This module handles incoming commands from the Simulation Controller for modifying the
 //! communication server's configuration.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
+use crate::communication_server::communication_server::CommunicationServer;
 use dn_controller::ServerCommand;
 
 impl CommunicationServer {

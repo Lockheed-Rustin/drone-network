@@ -4,8 +4,8 @@
 //! messages based on their type, and sending acknowledgments and full messages to clients or servers.
 //! Additionally, it handles the sending of fragmented messages using source routing.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::SessionId;
+use crate::communication_server::communication_server::CommunicationServer;
+use crate::communication_server::session_manager::SessionId;
 use dn_controller::ServerEvent;
 use dn_message::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
@@ -26,13 +26,13 @@ impl CommunicationServer {
     /// * `arrived_packet_path` - The path of the incoming packet
     pub(crate) fn handle_fragment(
         &mut self,
-        f: Fragment,
+        f: &Fragment,
         sender_id: NodeId,
         session_id: SessionId,
-        arrived_packet_path: Vec<NodeId>,
+        arrived_packet_path: &[NodeId],
     ) {
         self.send_ack(f.fragment_index, session_id, arrived_packet_path);
-        if let Some(message) = self.assembler.handle_fragment(&f, sender_id, session_id) {
+        if let Some(message) = self.assembler.handle_fragment(f, sender_id, session_id) {
             self.handle_message(message, sender_id);
         }
     }
@@ -64,20 +64,20 @@ impl CommunicationServer {
     /// to the specified recipient. It uses source routing to ensure the packet is routed correctly.
     ///
     /// # Arguments
-    /// * `fragment_index` - The fragment_index of the fragment for which to send an acknowledgment.
+    /// * `fragment_index` - The `fragment_index` of the fragment for which to send an acknowledgment.
     /// * `session_id` - The session ID associated with the message.
     /// * `arrived_packet_path` - The path of the incoming packet
     pub(crate) fn send_ack(
         &mut self,
         fragment_index: u64,
         session_id: SessionId,
-        arrived_packet_path: Vec<NodeId>,
+        arrived_packet_path: &[NodeId],
     ) {
         let ack = PacketType::Ack(Ack { fragment_index });
         let hops = arrived_packet_path
             .iter()
             .rev()
-            .cloned()
+            .copied()
             .collect::<Vec<_>>();
 
         let packet = Packet {
@@ -106,24 +106,22 @@ impl CommunicationServer {
             .network_topology
             .source_routing(self.id, to)
             .expect("Error in routing");
-        if !hops.is_empty() {
-            if let Message::Server(sb) = message.clone() {
-                let serialized_message = self.assembler.serialize_message(&message);
-                self.controller_send
-                    .send(ServerEvent::MessageFragmented {
-                        body: sb,
-                        from: self.id,
-                        to,
-                    })
-                    .expect("Error in controller_send");
-                let routing_header = SourceRoutingHeader { hop_index: 1, hops };
-                let session_id = self.session_manager.get_and_increment_session_id_counter();
-                self.send_fragments(session_id, serialized_message, routing_header);
-            }
-        } else {
+        if hops.is_empty() {
             // I don't know the path to `to` yet
             self.pending_messages_queue.add_message(to, message);
             self.update_network_topology();
+        } else if let Message::Server(sb) = message.clone() {
+            let serialized_message = self.assembler.serialize_message(&message);
+            self.controller_send
+                .send(ServerEvent::MessageFragmented {
+                    body: sb,
+                    from: self.id,
+                    to,
+                })
+                .expect("Error in controller_send");
+            let routing_header = SourceRoutingHeader { hop_index: 1, hops };
+            let session_id = self.session_manager.get_and_increment_session_id_counter();
+            self.send_fragments(session_id, serialized_message, &routing_header);
         }
     }
 
@@ -146,7 +144,7 @@ impl CommunicationServer {
         &mut self,
         session_id: SessionId,
         fragments: Vec<Fragment>,
-        routing_header: SourceRoutingHeader,
+        routing_header: &SourceRoutingHeader,
     ) {
         self.session_manager.add_session(
             session_id,
@@ -191,7 +189,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use dn_message::ServerBody;
 
     #[test]
@@ -202,7 +200,7 @@ mod tests {
         let fragment: Fragment = TestServerHelper::test_fragment(13, 50);
         test_server_helper
             .server
-            .send_ack(fragment.fragment_index, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, session_id, &vec![6, 3, 1]);
 
         let ack = test_server_helper
             .packet_recv_3
@@ -220,7 +218,7 @@ mod tests {
         // the dest is not in the topology but `send_nack` can use the reversed path in these cases
         test_server_helper
             .server
-            .send_ack(fragment.fragment_index, session_id, vec![6, 3, 1]);
+            .send_ack(fragment.fragment_index, session_id, &vec![6, 3, 1]);
         let ack = test_server_helper
             .packet_recv_3
             .try_recv()
@@ -244,13 +242,13 @@ mod tests {
             test_server_helper
                 .server
                 .pending_messages_queue
-                .has_pending_messages(&6),
+                .has_pending_messages(6),
             true
         );
         match test_server_helper
             .server
             .pending_messages_queue
-            .take_pending_messages(&6)
+            .take_pending_messages(6)
         {
             Some(mut v) => {
                 assert_eq!(v.len(), 1);

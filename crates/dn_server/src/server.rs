@@ -13,6 +13,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[must_use]
     pub fn new(
         id: NodeId,
         controller_send: Sender<ServerEvent>,
@@ -47,7 +48,7 @@ impl Server {
                     .routing_header
                     .hops
                     .iter()
-                    .cloned()
+                    .copied()
                     .rev()
                     .collect::<Vec<_>>();
 
