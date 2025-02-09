@@ -5,7 +5,8 @@ use dn_controller::{
     ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController,
     SimulationControllerOptions, Topology,
 };
-use dn_server::Server;
+use dn_server::content_server::ContentServer;
+use dn_server::{communication_server::CommunicationServer, content_server::ServerOptions};
 use petgraph::prelude::{DiGraphMap, UnGraphMap};
 use rayon::{
     iter::{IntoParallelIterator, ParallelIterator},
@@ -87,7 +88,10 @@ fn init_network_with_fair_drones(
         clients.into_par_iter().for_each(|mut client| client.run());
     });
     server_pool.spawn(|| {
-        servers.into_par_iter().for_each(|mut server| server.run());
+        servers.into_par_iter().for_each(|server| match server {
+            Server::ContentServer(mut server) => server.run(),
+            Server::CommunicationServer(mut server) => server.run(),
+        });
     });
 
     Ok(SimulationController::new(SimulationControllerOptions {
@@ -195,6 +199,11 @@ fn client_options(
         .collect()
 }
 
+enum Server {
+    ContentServer(ContentServer),
+    CommunicationServer(CommunicationServer),
+}
+
 fn server_options(
     config: &Config,
     nodes: &mut HashMap<NodeId, Node>,
@@ -204,7 +213,8 @@ fn server_options(
     config
         .server
         .iter()
-        .map(|server| {
+        .enumerate()
+        .map(|(i, server)| {
             // controller
             let (server_send, controller_recv) = unbounded();
             nodes.insert(
@@ -222,12 +232,22 @@ fn server_options(
             let packet_send = get_packet_send(packets, &server.connected_drone_ids);
             let id = server.id;
 
-            Server {
-                id,
-                controller_send,
-                controller_recv,
-                packet_send,
-                packet_recv,
+            if i % 2 == 0 {
+                Server::CommunicationServer(CommunicationServer::new(
+                    controller_send,
+                    controller_recv,
+                    packet_send,
+                    packet_recv,
+                    id,
+                ))
+            } else {
+                Server::ContentServer(ContentServer::new(ServerOptions {
+                    id,
+                    controller_send,
+                    controller_recv,
+                    packet_recv,
+                    packet_send,
+                }))
             }
         })
         .collect()

@@ -88,10 +88,9 @@ impl Client {
             ClientCommand::SendMessage(client_body, to) => {
                 self.handle_send_message(client_body, to);
             }
-            ClientCommand::SendFloodRequest => self.send_flood_request(),
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
             ClientCommand::AddSender(n, sender) => self.add_sender(n, sender),
-            _ => {}
+            ClientCommand::Return => {}
         }
     }
 

@@ -20,7 +20,7 @@ pub struct ServerOptions {
     pub packet_send: HashMap<NodeId, Sender<Packet>>,
 }
 
-pub struct Server {
+pub struct ContentServer {
     router_opt: RouterOptions,
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
@@ -28,7 +28,7 @@ pub struct Server {
     router_recv: Sender<Command>,
 }
 
-impl Server {
+impl ContentServer {
     pub fn new(opt: ServerOptions) -> Self {
         let (controller_command_send, controller_command_recv) = unbounded();
         let (controller_event_send, controller_event_recv) = unbounded();
