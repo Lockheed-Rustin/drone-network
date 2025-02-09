@@ -619,7 +619,7 @@ mod tests {
             0,
             FloodRequest::initialize(0, 1, NodeType::Client),
         );
-        assert!(client.check_routing(&flood_request));
+        assert!(client.check_routing(&flood_request).is_ok());
 
         let ack_short_ = Packet::new_ack(
             SourceRoutingHeader {
@@ -629,7 +629,7 @@ mod tests {
             0,
             0,
         );
-        assert!(!client.check_routing(&ack_short_));
+        assert!(!client.check_routing(&ack_short_).is_ok());
 
         let fragment_short_ = Packet::new_fragment(
             SourceRoutingHeader {
@@ -639,7 +639,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.check_routing(&fragment_short_));
+        assert!(!client.check_routing(&fragment_short_).is_ok());
 
         let valid_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -649,7 +649,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(client.check_routing(&valid_fragment));
+        assert!(client.check_routing(&valid_fragment).is_ok());
 
         let travel_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -659,7 +659,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.check_routing(&travel_fragment));
+        assert!(!client.check_routing(&travel_fragment).is_ok());
 
         let not_for_me_fragment = Packet::new_fragment(
             SourceRoutingHeader {
@@ -669,7 +669,7 @@ mod tests {
             0,
             Fragment::new(0, 1, [0; 128]),
         );
-        assert!(!client.check_routing(&not_for_me_fragment));
+        assert!(!client.check_routing(&not_for_me_fragment).is_ok());
         match recv_3.recv() {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
