@@ -13,7 +13,7 @@ use wg_2024::{
 };
 
 #[derive(Clone)]
-pub struct ServerOptions {
+pub struct ContentServerOptions {
     pub id: NodeId,
     pub controller_send: Sender<ServerEvent>,
     pub controller_recv: Receiver<ServerCommand>,
@@ -31,7 +31,7 @@ pub struct ContentServer {
 }
 
 impl ContentServer {
-    pub fn new(opt: ServerOptions) -> Self {
+    pub fn new(opt: ContentServerOptions) -> Self {
         let (controller_command_send, controller_command_recv) = unbounded();
         let (controller_event_send, controller_event_recv) = unbounded();
         Self {
