@@ -1,17 +1,15 @@
-use std::collections::{HashMap, HashSet};
 use petgraph::prelude::UnGraphMap;
+use std::collections::{HashMap, HashSet};
 
-use std::collections::BinaryHeap;
-use std::cmp::Reverse;
 use std::cmp::Ordering;
-use wg_2024::network::{NodeId};
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+use wg_2024::network::NodeId;
 use wg_2024::packet::NodeType;
 
 //---------- CUSTOM TYPES ----------//
 type Path = Vec<NodeId>;
 type FloodPath = Vec<(NodeId, NodeType)>;
-
-
 
 //---------- QUEUE PRIO TYPE ----------//
 #[derive(Copy, Clone, Debug)]
@@ -21,9 +19,7 @@ struct QP {
 
 impl QP {
     pub fn new(prio: f64) -> Self {
-        Self {
-            prio,
-        }
+        Self { prio }
     }
 }
 
@@ -55,16 +51,12 @@ impl Ord for QP {
     }
 }
 
-
-
 //---------- STRUCT SERVER INFO ----------//
 #[derive(Debug, Default)]
 pub struct ServerInfo {
     path: Path,
     reachable: bool,
 }
-
-
 
 //---------- STRUCT DRONE INFO ----------//
 #[derive(Default, Debug)]
@@ -74,15 +66,15 @@ pub struct DroneInfo {
 }
 
 impl DroneInfo {
-
-    /// real_packet_sent_factor
+    /// `rps_factor`: real packet sent factor
     /// Returns the estimated number of packet to send for every packet which has been delivered
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn rps_factor(&self) -> f64 {
         if self.packet_traveled == 0 || self.packet_dropped == 0 {
             1.0
-        }
-        else {
-            let pdr = (self.packet_dropped as f64)/(self.packet_traveled as f64);
+        } else {
+            let pdr = (self.packet_dropped as f64) / (self.packet_traveled as f64);
 
             let mut rps = 0.0;
             for i in 0..=10 {
@@ -103,7 +95,6 @@ impl DroneInfo {
     }
 }
 
-
 //---------- CLIENT'S SOURCE ROUTING ----------//
 pub struct ClientRouting {
     client_id: NodeId,
@@ -114,8 +105,9 @@ pub struct ClientRouting {
 }
 
 impl ClientRouting {
+    #[must_use]
     pub fn new(client_id: NodeId) -> Self {
-        let mut topology: UnGraphMap::<NodeId, ()> =  UnGraphMap::new();
+        let mut topology: UnGraphMap<NodeId, ()> = UnGraphMap::new();
         topology.add_node(client_id);
 
         let mut clients: HashSet<NodeId> = HashSet::new();
@@ -130,20 +122,22 @@ impl ClientRouting {
         }
     }
 
-
     //---------- topology modifier ----------//
     pub fn clear_topology(&mut self) {
         self.topology.clear();
         self.topology.add_node(self.client_id);
 
-        for (_, server_info) in self.servers_info.iter_mut() {
+        for server_info in self.servers_info.values_mut() {
             server_info.reachable = false;
         }
-
     }
 
-    pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId)  {
-        if self.topology.remove_edge(self.client_id, neighbor).is_some() {
+    pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId) {
+        if self
+            .topology
+            .remove_edge(self.client_id, neighbor)
+            .is_some()
+        {
             if self.topology.neighbors(neighbor).next().is_none() {
                 self.topology.remove_node(neighbor);
             }
@@ -158,17 +152,20 @@ impl ClientRouting {
             self.drones_info.insert(neighbor, DroneInfo::default());
         }
 
-        if self.topology.add_edge(self.client_id, neighbor, ()).is_none() {
+        if self
+            .topology
+            .add_edge(self.client_id, neighbor, ())
+            .is_none()
+        {
             //If new edge is added
             self.compute_routing_paths()
-        }
-        else {
+        } else {
             //nothing changed: no need to recompute path
             None
         }
     }
 
-    pub fn remove_node(&mut self, node: NodeId)  {
+    pub fn remove_node(&mut self, node: NodeId) {
         if self.topology.remove_node(node) {
             self.drones_info.remove(&node);
 
@@ -176,50 +173,50 @@ impl ClientRouting {
         }
     }
 
-    pub fn add_path(&mut self, path: &FloodPath) -> Option<Vec<(NodeId, Path)>>  {
+    pub fn add_path(&mut self, path: &FloodPath) -> Option<Vec<(NodeId, Path)>> {
         //check if path is empty and
         let mut iter = path.iter();
-        let mut last = match iter.next() {
-            Some(&(node, _)) => node, //first node this case (client itself)
-            None => return None, //Case empty path
-        };
 
-        let mut something_changed = false;
-        for &(node, node_type) in iter {
-            //add new nodes to topology
-            if !self.topology.contains_node(node) {
-                self.topology.add_node(node);
-                match &node_type {
-                    NodeType::Drone => {
-                        self.drones_info.entry(node).or_default();
+        match &iter.next() {
+            None => None,
+
+            Some((mut last, _)) => {
+                let mut something_changed = false;
+                for &(node, node_type) in iter {
+                    //add new nodes to topology
+                    if !self.topology.contains_node(node) {
+                        self.topology.add_node(node);
+                        match &node_type {
+                            NodeType::Drone => {
+                                self.drones_info.entry(node).or_default();
+                            }
+                            NodeType::Server => {
+                                self.servers_info.entry(node).or_default();
+                            }
+                            NodeType::Client => {
+                                self.clients.insert(node);
+                            }
+                        }
+                        something_changed = true;
                     }
-                    NodeType::Server => {
-                        self.servers_info.entry(node).or_default();
+
+                    //add new edges to topology
+                    if !self.topology.contains_edge(node, last) {
+                        self.topology.add_edge(node, last, ());
+                        something_changed = true;
                     }
-                    NodeType::Client => {
-                        self.clients.insert(node);
-                    }
+                    last = node;
                 }
-                something_changed = true;
-            }
 
-            //add new edges to topology
-            if !self.topology.contains_edge(node, last) {
-                self.topology.add_edge(node, last, ());
-                something_changed = true;
+                //no need to recompute path if nothing has been changed
+                if something_changed {
+                    self.compute_routing_paths()
+                } else {
+                    None
+                }
             }
-            last = node;
-        }
-
-        //no need to recompute path if nothing has been changed
-        if something_changed {
-            self.compute_routing_paths()
-        }
-        else {
-            None
         }
     }
-
 
     //---------- update info on packet exchanged ----------//
     pub fn correct_send_to(&mut self, server: NodeId) {
@@ -229,13 +226,24 @@ impl ClientRouting {
     }
 
     pub fn correct_exchanged_with(&mut self, path: &Path) {
-        for drone in path.iter() {
+        for drone in path {
             if let Some(drone_info) = self.drones_info.get_mut(drone) {
                 drone_info.inc_correct_traveled();
             }
         }
     }
-
+    /// Update the information of drones on a path.
+    ///
+    /// This function returns an option to the previously computed path to `destination`,
+    /// if the server is known and if it's marked as reachable.
+    /// If the server is unknown, or it's marked as unreachable, it returns None.
+    ///
+    /// ### Arguments:
+    /// - `destination`: A reference to the ID of the destination node.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<NodeId>)`: An option to a valid path to the destination node ID.
+    /// - `None`: Otherwise.
     pub fn inc_packet_dropped(&mut self, path: &Path) {
         let mut iter = path.iter();
 
@@ -254,26 +262,38 @@ impl ClientRouting {
         self.compute_routing_paths();
     }
 
-
     //---------- compute source routing ----------//
-    /// Returns path to server as Vec<NodeId>.
+    /// Retrieves an option to the previously computed path to `destination`, if any.
     ///
-    /// If the destination server doesn't exist in the topology or the server os actually unreachable,
-    /// returns an appropriate error
+    /// This function returns an option to the previously computed path to `destination`,
+    /// if the server is known and if it's marked as reachable.
+    /// If the server is unknown, or it's marked as unreachable, it returns None.
+    ///
+    /// ### Arguments:
+    /// - `destination`: A reference to the ID of the destination node.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<NodeId>)`: An option to a valid path to the destination node ID.
+    /// - `None`: Otherwise.
+    #[must_use]
     pub fn get_path(&self, destination: NodeId) -> Option<Path> {
         match self.servers_info.get(&destination) {
-            Some(server_info) if server_info.reachable => {
-                Some(server_info.path.clone())
-            }
-            _ => None
+            Some(server_info) if server_info.reachable => Some(server_info.path.clone()),
+            _ => None,
         }
     }
 
-    /// Update the information about path from client to the connected servers
+    /// Compute the path from the client to all known servers
+    /// and return servers which became reachable after updating
     ///
-    /// Return an option to a list of servers which became reachable after updating their routing paths.
+    /// This function returns an option to a list of pairs (server, serverPath),
+    /// which contains all servers became reachable after updating their routing path, with their path.
+    ///
+    /// # Returns
+    /// - `Some<Vec<(NodeId, Vec<NodeId>)>>`:  List of server became reachable with their path if any,
+    /// - `None`: If no server became reachable after update.
     pub fn compute_routing_paths(&mut self) -> Option<Vec<(NodeId, Path)>> {
-        if self.servers_info.is_empty(){
+        if self.servers_info.is_empty() {
             return None; //No server in the topology
         }
 
@@ -305,7 +325,8 @@ impl ClientRouting {
 
                                 queue.push((Reverse(QP::new(distance)), neighbor));
 
-                                distances.entry(neighbor)
+                                distances
+                                    .entry(neighbor)
                                     .and_modify(|e| {
                                         if e.1 > distance {
                                             *e = (node, distance);
@@ -320,44 +341,45 @@ impl ClientRouting {
         }
 
         //compute single path for every server
-        for (&server, server_info) in self.servers_info.iter_mut() {
+        for (&server, server_info) in &mut self.servers_info {
             if visited.contains(&server) {
                 let mut path: Path = Vec::new();
                 path.push(server);
                 let mut last = server;
 
-                while last != self.client_id {
-                    let (pred, _) = distances.get(&last).unwrap();
-                    path.push(*pred);
-                    last = *pred;
-                }
-                path.reverse();
+                let mut pathable = true;
 
-                server_info.path = path.clone();
-
-                if !server_info.reachable {
-                    server_info.reachable = true;
-                    servers_became_reachable.push((server, path.clone()));
+                while last != self.client_id && pathable {
+                    if let Some((pred, _)) = distances.get(&last) {
+                        path.push(*pred);
+                        last = *pred;
+                    } else {
+                        pathable = false;
+                    }
                 }
-            }
-            else {
+
+                if pathable {
+                    path.reverse();
+
+                    server_info.path.clone_from(&path);
+
+                    if !server_info.reachable {
+                        server_info.reachable = true;
+                        servers_became_reachable.push((server, path.clone()));
+                    }
+                }
+            } else {
                 server_info.reachable = false;
             }
         }
 
         if servers_became_reachable.is_empty() {
             None
-        }
-        else {
+        } else {
             Some(servers_became_reachable)
         }
     }
 }
-
-
-
-
-
 
 //---------------------------//
 //---------- TESTS ----------//
@@ -376,7 +398,6 @@ mod tests {
         assert_eq!(drone_info.packet_dropped, 0);
         assert_eq!(drone_info.packet_traveled, 0);
 
-
         //---------- functions ----------//
         assert_eq!(drone_info.rps_factor(), 1.0);
 
@@ -394,8 +415,6 @@ mod tests {
         assert_eq!(drone_info.rps_factor(), 1.1111111111);
     }
 
-
-
     //---------- SERVER INFO TEST ----------//
     #[test]
     fn server_info_test() {
@@ -406,18 +425,15 @@ mod tests {
         assert!(!server_info.reachable);
     }
 
-
-
     //---------- CLIENT ROUTING TEST ----------//
 
-    #[test]     //---------- INIT & TOPOLOGY MODIFIER ----------//
+    #[test] //---------- INIT & TOPOLOGY MODIFIER ----------//
     fn client_routing_test_part1() {
         /*
         topologia con 4 nodi: 1(Client), 2(Drone), 3(Drone), 4(Server)
         paths: 1-2-4, 1-3-4
         routing path: 1-3-4 -> edge_weight(3,4) = 2.0
         */
-
 
         //---------- init ----------//
         let mut client_routing = ClientRouting::new(1);
@@ -433,8 +449,6 @@ mod tests {
         assert_eq!(client_routing.topology.node_count(), 1);
         assert!(client_routing.topology.contains_node(1));
 
-
-
         //---------- add channel to neighbor ----------//
         client_routing.add_channel_to_neighbor(2);
         client_routing.add_channel_to_neighbor(3);
@@ -442,14 +456,13 @@ mod tests {
         assert_eq!(client_routing.topology.node_count(), 3);
 
         assert!(client_routing.topology.contains_node(2));
-        assert!(client_routing.topology.contains_edge(1,2));
+        assert!(client_routing.topology.contains_edge(1, 2));
 
         assert!(client_routing.topology.contains_node(3));
-        assert!(client_routing.topology.contains_edge(1,3));
+        assert!(client_routing.topology.contains_edge(1, 3));
 
         assert!(client_routing.drones_info.contains_key(&2));
         assert!(client_routing.drones_info.contains_key(&3));
-
 
         //---------- add path ----------//
         let path1: FloodPath = vec![(1, Client), (2, Drone), (4, Server)];
@@ -461,18 +474,16 @@ mod tests {
 
         assert!(client_routing.topology.contains_node(4));
 
-        assert!(client_routing.topology.contains_edge(2,4));
+        assert!(client_routing.topology.contains_edge(2, 4));
 
-        assert!(client_routing.topology.contains_edge(3,4));
+        assert!(client_routing.topology.contains_edge(3, 4));
 
         assert!(client_routing.servers_info.contains_key(&4));
-
 
         //---------- remove channel to neighbor ----------//
         client_routing.remove_channel_to_neighbor(2);
 
-        assert!(!client_routing.topology.contains_edge(1,2));
-
+        assert!(!client_routing.topology.contains_edge(1, 2));
 
         //---------- remove drone ----------//
         client_routing.remove_node(2);
@@ -480,18 +491,16 @@ mod tests {
         assert_eq!(client_routing.topology.node_count(), 3);
 
         assert!(!client_routing.topology.contains_node(2));
-        assert!(!client_routing.topology.contains_edge(2,4));
-
+        assert!(!client_routing.topology.contains_edge(2, 4));
 
         //---------- reset topology ----------//
         client_routing.clear_topology();
 
         assert_eq!(client_routing.topology.node_count(), 1);
         assert!(client_routing.topology.contains_node(1));
-
     }
 
-    #[test]     //---------- UPDATE INFO PACKED EXCHANGED ----------//
+    #[test] //---------- UPDATE INFO PACKED EXCHANGED ----------//
     fn client_routing_test_part2() {
         /*
         topologia con 6 nodi: 1(Client), 2(Drone), 3(Drone), 4(Drone), 5(Drone), 6(Server)
@@ -504,35 +513,56 @@ mod tests {
         client_routing.add_path(&path1);
         client_routing.add_path(&path2);
 
-        let good_path = vec![1,2,3,6];
+        let good_path = vec![1, 2, 3, 6];
         if let Some(server_info) = client_routing.servers_info.get_mut(&6) {
             server_info.path = good_path;
         }
-        let dropped_path = vec![5,4,1];
+        let dropped_path = vec![5, 4, 1];
 
         //---------- correct exchanged ----------//
         client_routing.correct_send_to(6);
 
-        assert_eq!(client_routing.drones_info.get(&2).unwrap().packet_traveled, 1);
-        assert_eq!(client_routing.drones_info.get(&2).unwrap().packet_dropped, 0);
+        assert_eq!(
+            client_routing.drones_info.get(&2).unwrap().packet_traveled,
+            1
+        );
+        assert_eq!(
+            client_routing.drones_info.get(&2).unwrap().packet_dropped,
+            0
+        );
 
-        assert_eq!(client_routing.drones_info.get(&3).unwrap().packet_traveled, 1);
-        assert_eq!(client_routing.drones_info.get(&3).unwrap().packet_dropped, 0);
-
+        assert_eq!(
+            client_routing.drones_info.get(&3).unwrap().packet_traveled,
+            1
+        );
+        assert_eq!(
+            client_routing.drones_info.get(&3).unwrap().packet_dropped,
+            0
+        );
 
         //---------- packet dropped ----------//
         client_routing.inc_packet_dropped(&dropped_path);
 
-        assert_eq!(client_routing.drones_info.get(&5).unwrap().packet_traveled, 1);
-        assert_eq!(client_routing.drones_info.get(&5).unwrap().packet_dropped, 1);
+        assert_eq!(
+            client_routing.drones_info.get(&5).unwrap().packet_traveled,
+            1
+        );
+        assert_eq!(
+            client_routing.drones_info.get(&5).unwrap().packet_dropped,
+            1
+        );
 
-        assert_eq!(client_routing.drones_info.get(&4).unwrap().packet_traveled, 1);
-        assert_eq!(client_routing.drones_info.get(&4).unwrap().packet_dropped, 0);
+        assert_eq!(
+            client_routing.drones_info.get(&4).unwrap().packet_traveled,
+            1
+        );
+        assert_eq!(
+            client_routing.drones_info.get(&4).unwrap().packet_dropped,
+            0
+        );
     }
 
-
-
-    #[test]     //---------- COMPUTE ROUTING ----------//
+    #[test] //---------- COMPUTE ROUTING ----------//
     fn client_routing_test_part3() {
         /*
         topologia con 8 nodi: 1(Client), 2(Drone), 3(Drone), 4(Drone), 5(Drone), 6(Server), 7(Server), 8(IsolatedServer)
@@ -555,7 +585,6 @@ mod tests {
         client_routing.topology.add_node(8);
         client_routing.servers_info.insert(8, ServerInfo::default());
 
-
         let mut drone_info;
         drone_info = client_routing.drones_info.get_mut(&2).unwrap();
         drone_info.packet_traveled = 100;
@@ -570,7 +599,6 @@ mod tests {
         drone_info.packet_traveled = 100;
         drone_info.packet_dropped = 20;
 
-
         //---------- check pre-test ----------//
         assert!(client_routing.topology.contains_node(8));
         assert_eq!(client_routing.topology.node_count(), 8);
@@ -578,35 +606,32 @@ mod tests {
         assert!(client_routing.servers_info.contains_key(&8));
         assert_eq!(client_routing.servers_info.len(), 3);
 
-
         //---------- compute routing paths ----------//
         client_routing.compute_routing_paths();
         let mut server_info;
 
         server_info = client_routing.servers_info.get(&6).unwrap();
         assert!(server_info.reachable);
-        assert_eq!(server_info.path, vec![1,2,3,6]);
+        assert_eq!(server_info.path, vec![1, 2, 3, 6]);
 
         server_info = client_routing.servers_info.get(&7).unwrap();
         assert!(server_info.reachable);
-        assert_eq!(server_info.path, vec![1,2,3,7]);
+        assert_eq!(server_info.path, vec![1, 2, 3, 7]);
 
         server_info = client_routing.servers_info.get(&8).unwrap();
         assert!(!server_info.reachable);
 
-
         //---------- get path ----------//
-        assert_eq!(client_routing.get_path(6).unwrap(), vec![1,2,3,6]);
-        assert_eq!(client_routing.get_path(7).unwrap(), vec![1,2,3,7]);
-        assert!(client_routing.get_path(8).is_none());  //server unreachable
-        assert!(client_routing.get_path(9).is_none());  //server doesn't exist
-
+        assert_eq!(client_routing.get_path(6).unwrap(), vec![1, 2, 3, 6]);
+        assert_eq!(client_routing.get_path(7).unwrap(), vec![1, 2, 3, 7]);
+        assert!(client_routing.get_path(8).is_none()); //server unreachable
+        assert!(client_routing.get_path(9).is_none()); //server doesn't exist
 
         //---------- test became reachable ----------//
         let path5: FloodPath = vec![(1, Client), (4, Drone), (5, Drone), (8, Server)];
         let servers_became_reachable = client_routing.add_path(&path5).unwrap();
 
         assert_eq!(servers_became_reachable[0].0, 8);
-        assert_eq!(servers_became_reachable[0].1, vec![1,4,5,8]);
+        assert_eq!(servers_became_reachable[0].1, vec![1, 4, 5, 8]);
     }
 }
