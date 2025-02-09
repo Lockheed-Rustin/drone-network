@@ -30,15 +30,42 @@ controller. *(Developed by Lorenzo Ferranti)*
 
 ## Content Server
 
-This is Daniele Di Cesare individual contribution
+*This is Daniele Di Cesare individual contribution*
 
 ## Communication Server
 
-This is Luca Agostinelli individual contribution
+*This is Luca Agostinelli individual contribution*
+
+The **Communication Server** code is contained within the `dn_server/src/communication_server` directory.
+
+The **main file** is `communication_server_main.rs`, which defines the `CommunicationServer` struct and its two public functions:
+
+- `pub fn new(...) -> Self`
+- `pub fn run(&mut self)`
+
+All other methods are implemented in separate files within the `handlers` directory. These methods handle different aspects of server functionality, such as:
+- **Message Handling** (`handle_messages.rs`): Manages the receipt, processing, and forwarding of messages between clients.
+- **Packet Handling** (`handle_packet.rs`): Handles individual network packets.
+- **NACK Handling** (`handle_nack.rs`): Defines the actions to be taken when negative acknowledgments are received.
+- **Command Handling** (`handle_command.rs`): Processes commands sent to the communication server by the SC.
+- **Flood Handling** (`handle_flood.rs`): Implements message flooding mechanisms within the network.
+- **Client Services** (`handle_server_services.rs`): Manages requests for sever type, client registration, retrieval 
+of registered clients and message forwarding.
+
+The **CommunicationServer** internally uses additional structs:
+- `Assembler` (defined in the `dn_message` crate)
+- `CommunicationServerNetworkTopology` - Manages the network topology, representing nodes and connections as a graph. 
+It supports routing and maintains saved paths for efficient communication.
+- `PendingMessagesQueue` - Stores messages that could not be sent due to the lack of a known path. Once a path is discovered, 
+these messages are retrieved and forwarded.
+- `SessionManager` - Manages active communication sessions, tracking message fragments, acknowledgments, and session identifiers.
+
+The file `test_server_helper.rs` contains the `TestServerHelper` struct, which is used exclusively for unit testing. 
+Most of the files in this module have associated unit tests to verify the implemented functionalities.
 
 ## Client
 
-This is Matteo Zendri individual contribution
+*This is Matteo Zendri individual contribution*
 
 ## Contributors
 - **Luca Agostinelli** - Communication Server, Assembler
