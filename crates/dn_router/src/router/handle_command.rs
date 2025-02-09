@@ -16,7 +16,7 @@ impl Router {
     }
     pub(crate) fn handle_message(&mut self, msg: Message, dst: NodeId) {
         let session_id = self.inc_session_id();
-        let fragments = self.assembler.serialize_message(msg);
+        let fragments = self.assembler.serialize_message(&msg);
         for fragment in fragments {
             let fragment_index = fragment.fragment_index;
             self.fragment_queue_send

@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use dn_message::ClientBody;
 use petgraph::algo::connected_components;
 use petgraph::prelude::UnGraphMap;
+use rayon::ThreadPool;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use wg_2024::packet::Packet;
@@ -24,6 +25,7 @@ pub enum NodeType {
     Drone {
         sender: Sender<DroneCommand>,
         pdr: f32,
+        group_name: String,
     },
     Client {
         sender: Sender<ClientCommand>,
@@ -50,6 +52,17 @@ impl NodeType {
     }
 }
 
+pub struct SimulationControllerOptions {
+    pub nodes: HashMap<NodeId, Node>,
+    pub drone_recv: Receiver<DroneEvent>,
+    pub server_recv: Receiver<ServerEvent>,
+    pub client_recv: Receiver<ClientEvent>,
+    pub topology: Topology,
+    pub drone_pool: ThreadPool,
+    pub client_pool: ThreadPool,
+    pub server_pool: ThreadPool,
+}
+
 pub struct SimulationController {
     nodes: HashMap<NodeId, Node>,
 
@@ -59,25 +72,25 @@ pub struct SimulationController {
 
     topology: Topology,
 
-    _pool: rayon::ThreadPool,
+    #[allow(unused)]
+    drone_pool: ThreadPool,
+    #[allow(unused)]
+    client_pool: ThreadPool,
+    #[allow(unused)]
+    server_pool: ThreadPool,
 }
 
 impl SimulationController {
-    pub fn new(
-        nodes: HashMap<NodeId, Node>,
-        drone_recv: Receiver<DroneEvent>,
-        server_recv: Receiver<ServerEvent>,
-        client_recv: Receiver<ClientEvent>,
-        topology: Topology,
-        pool: rayon::ThreadPool,
-    ) -> Self {
+    pub fn new(opt: SimulationControllerOptions) -> Self {
         Self {
-            nodes,
-            drone_recv,
-            server_recv,
-            client_recv,
-            topology,
-            _pool: pool,
+            nodes: opt.nodes,
+            drone_recv: opt.drone_recv,
+            server_recv: opt.server_recv,
+            client_recv: opt.client_recv,
+            topology: opt.topology,
+            drone_pool: opt.drone_pool,
+            client_pool: opt.client_pool,
+            server_pool: opt.server_pool,
         }
     }
 
@@ -147,9 +160,11 @@ impl SimulationController {
     pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Option<()> {
         self.add_sender(a, b)?;
         self.add_sender(b, a)?;
-
-        self.topology.add_edge(a, b, ())?;
-        Some(())
+        // We need to return the OPPOSITE of what petgraph::graphmap::add_edge returns
+        match self.topology.add_edge(a, b, ()) {
+            None => Some(()),
+            Some(_) => None,
+        }
     }
 
     fn remove_sender(&self, a: NodeId, b: NodeId) -> Option<()> {
@@ -186,7 +201,7 @@ impl SimulationController {
     pub fn set_pdr(&mut self, id: NodeId, new_pdr: f32) -> Option<()> {
         let new_pdr = new_pdr.clamp(0.0, 1.0);
         match &mut self.nodes.get_mut(&id)?.node_type {
-            NodeType::Drone { sender, pdr } => {
+            NodeType::Drone { sender, pdr, .. } => {
                 sender.send(DroneCommand::SetPacketDropRate(new_pdr)).ok();
                 *pdr = new_pdr;
                 Some(())
@@ -202,6 +217,13 @@ impl SimulationController {
         }
     }
 
+    pub fn get_group_name(&self, drone_id: NodeId) -> Option<&str> {
+        match &self.nodes.get(&drone_id)?.node_type {
+            NodeType::Drone { group_name, .. } => Some(group_name),
+            _ => None,
+        }
+    }
+
     pub fn client_send_message(
         &self,
         client_id: NodeId,
@@ -210,6 +232,12 @@ impl SimulationController {
     ) -> Option<()> {
         let sender = self.get_client_sender(client_id)?;
         sender.send(ClientCommand::SendMessage(body, dest)).ok()
+    }
+
+    pub fn shortcut(&self, p: Packet) -> Option<()> {
+        let dest_id = p.routing_header.hops.last()?;
+        let sender = &self.nodes.get(dest_id)?.packet_send;
+        sender.send(p).ok()
     }
 
     // TODO: remove this after the fair
@@ -224,6 +252,10 @@ impl SimulationController {
         let sender = self.get_client_sender(id)?;
         sender.send(ClientCommand::SendFloodRequest).ok()?;
         Some(())
+    }
+
+    pub fn get_topology(&self) -> &Topology {
+        &self.topology
     }
 
     pub fn is_valid_topology(&self) -> bool {
@@ -267,6 +299,24 @@ impl SimulationController {
 
 impl Debug for SimulationController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{:#?}", self.topology)
+        write!(f, "{:#?}", self.nodes)
+    }
+}
+
+impl Drop for SimulationController {
+    fn drop(&mut self) {
+        for (id, node) in self.nodes.drain() {
+            match node.node_type {
+                NodeType::Drone { sender, .. } => {
+                    sender.send(DroneCommand::Crash).unwrap();
+                    // remove all senders
+                    for neighbor in self.topology.neighbors(id) {
+                        _ = sender.send(DroneCommand::RemoveSender(neighbor));
+                    }
+                }
+                NodeType::Client { sender } => sender.send(ClientCommand::Return).unwrap(),
+                NodeType::Server { sender } => sender.send(ServerCommand::Return).unwrap(),
+            }
+        }
     }
 }
