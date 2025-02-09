@@ -159,9 +159,10 @@ impl ContentServer {
         let files = WalkDir::new(ASSET_DIR)
             .into_iter()
             .flatten()
+            .map(|d| d.into_path())
+            .filter(|p| p.is_file())
             .map(|p| {
-                p.into_path()
-                    .strip_prefix(ASSET_DIR)
+                p.strip_prefix(ASSET_DIR)
                     .unwrap()
                     .to_string_lossy()
                     .to_string()
