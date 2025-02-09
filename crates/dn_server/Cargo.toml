@@ -10,3 +10,5 @@ dn_controller = { path = "../dn_controller" }
 dn_message = { path = "../dn_message" }
 dn_router = { path = "../dn_router/" }
 rayon = "1.10.0"
+petgraph = "0.6.5"
+rand = "0.9.0"

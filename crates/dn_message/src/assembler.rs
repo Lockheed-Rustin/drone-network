@@ -108,6 +108,7 @@ impl Assembler {
 /// `MessageBuffer` stores a fragmented message as it is reassembled.
 /// It holds the fragments, tracks the total number of fragments, and maintains a record of the
 /// received fragment indices, ensuring proper reassembly while ignoring duplicates.
+
 pub struct MessageBuffer {
     fragments: Vec<u8>,
     total_fragments: u64,
