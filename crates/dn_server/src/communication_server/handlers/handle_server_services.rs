@@ -6,7 +6,7 @@
 //! - **`registered_clients_list`**: sends a list of all registered clients to the requesting client.
 //! - **`forward_message`**: forwards a communication message to the intended recipient if they are registered.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
+use crate::communication_server::communication_server_main::CommunicationServer;
 use dn_message::ServerBody::{RespServerType, ServerCommunication};
 use dn_message::ServerCommunicationBody::RespClientList;
 use dn_message::{
@@ -152,7 +152,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use dn_message::ClientBody::{ClientCommunication, ReqServerType};
     use dn_message::ServerBody::ServerCommunication;
     use dn_message::ServerCommunicationBody::MessageReceive;

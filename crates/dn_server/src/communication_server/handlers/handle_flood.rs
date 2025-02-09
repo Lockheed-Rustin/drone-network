@@ -4,7 +4,7 @@
 //! helps in propagating network information across nodes to maintain a consistent view of the
 //! network topology for routing and communication purposes.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
+use crate::communication_server::communication_server_main::CommunicationServer;
 use dn_controller::ServerEvent;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet, PacketType};
@@ -149,7 +149,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;

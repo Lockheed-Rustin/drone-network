@@ -3,7 +3,7 @@
 //! acknowledgments, and flood-related requests or responses. The simulation controller is notified
 //! about each received packet.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
+use crate::communication_server::communication_server_main::CommunicationServer;
 use dn_controller::ServerEvent;
 use wg_2024::packet::{Nack, NackType, Packet, PacketType};
 
@@ -114,7 +114,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;
     use wg_2024::network::SourceRoutingHeader;

@@ -11,8 +11,8 @@
 //! - **`recover_fragment`**: Attempts to retrieve a missing or dropped message fragment, either by
 //!                           retransmitting it or re-initiating the routing process.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::{FragmentIndex, SessionId};
+use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::session_manager::{FragmentIndex, SessionId};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
@@ -181,7 +181,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use wg_2024::packet::Ack;
     #[test]
     fn test_handle_nack() {

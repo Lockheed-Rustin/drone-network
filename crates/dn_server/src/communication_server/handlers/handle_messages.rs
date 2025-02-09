@@ -4,8 +4,8 @@
 //! messages based on their type, and sending acknowledgments and full messages to clients or servers.
 //! Additionally, it handles the sending of fragmented messages using source routing.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::SessionId;
+use crate::communication_server::communication_server_main::CommunicationServer;
+use crate::communication_server::session_manager::SessionId;
 use dn_controller::ServerEvent;
 use dn_message::Message;
 use wg_2024::network::{NodeId, SourceRoutingHeader};
@@ -189,7 +189,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use dn_message::ServerBody;
 
     #[test]

@@ -11,9 +11,9 @@
 //! to work in a drone network environment where it dynamically updates its routing and
 //! topology based on received events.
 
-use crate::communication_server_code::communication_server_topology::CommunicationServerNetworkTopology;
-use crate::communication_server_code::pending_message_queue::PendingMessagesQueue;
-use crate::communication_server_code::session_manager::SessionManager;
+use crate::communication_server::communication_server_topology::CommunicationServerNetworkTopology;
+use crate::communication_server::pending_message_queue::PendingMessagesQueue;
+use crate::communication_server::session_manager::SessionManager;
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ServerCommand, ServerEvent};
 use dn_message::assembler::Assembler;
@@ -127,7 +127,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
     use std::thread;
     use std::time::Duration;
