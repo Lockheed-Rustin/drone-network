@@ -20,7 +20,7 @@ impl Router {
 
         let session_id = self.inc_session_id();
         self.routing.send_flood_response(Packet {
-            routing_header: SourceRoutingHeader { hop_index: 1, hops },
+            routing_header: SourceRoutingHeader { hop_index: 0, hops },
             session_id,
             pack_type: PacketType::FloodResponse(FloodResponse {
                 flood_id: flood_request.flood_id,
