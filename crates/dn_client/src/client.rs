@@ -13,6 +13,12 @@ use wg_2024::packet::{
 use wg_2024::{network::NodeId, packet::Packet};
 
 
+pub enum PathError {
+    UnexpectedRecipient,
+    InvalidPath,
+}
+
+
 
 pub struct Client {
     pub id: NodeId,
@@ -98,10 +104,13 @@ impl Client {
             .send(ClientEvent::PacketReceived(packet.clone(), self.id))
             .expect("Error in controller_send");
 
-        if !self.check_routing(&packet) {
-            //packet is only traveling through me
+        if let Err(err) = self.check_routing(&packet) {
+            if let PathError::UnexpectedRecipient = err {
+                self.send_unexp_recp(&packet);
+            }
             return;
         }
+
 
         match packet.pack_type {
             PacketType::MsgFragment(fragment) => {
@@ -127,47 +136,40 @@ impl Client {
     }
 
     //---------- check routing ----------//
-    fn check_routing(&self, packet: &Packet) -> bool {
+    fn check_routing(&self, packet: &Packet) -> Result<(), PathError> {
         match packet.pack_type {
-            PacketType::FloodRequest(_) => true,
+            PacketType::FloodRequest(_) => Ok(()),
             PacketType::MsgFragment(_) => {
                 if packet.routing_header.len() < 2 {
-                    return false;
+                    return Err(PathError::InvalidPath);
                 }
 
                 match packet.routing_header.current_hop() {
-                    Some(curr_hop) if curr_hop == self.id => packet.routing_header.is_last_hop(),
-                    Some(_) => {
-                        let mut path = packet
-                            .routing_header
-                            .hops
-                            .iter()
-                            .copied()
-                            .take(packet.routing_header.hop_index)
-                            .rev()
-                            .collect::<Vec<_>>();
-                        path.insert(0, self.id);
+                    Some(curr_hop) => {
+                        if curr_hop == self.id {
+                            if packet.routing_header.is_last_hop() {
+                                Ok(())
+                            }
+                            else {
+                                Err(PathError::InvalidPath)
+                            }
+                        }
+                        else {
+                            Err(PathError::UnexpectedRecipient)
+                        }
 
-                        let nack = Packet {
-                            routing_header: SourceRoutingHeader {
-                                hop_index: 0,
-                                hops: path,
-                            },
-                            session_id: packet.session_id,
-                            pack_type: PacketType::Nack(Nack {
-                                fragment_index: packet.get_fragment_index(),
-                                nack_type: NackType::UnexpectedRecipient(self.id),
-                            }),
-                        };
-
-                        self.send_packet(nack);
-
-                        false
-                    }
-                    _ => false,
+                    },
+                    None => Err(PathError::InvalidPath),
                 }
             }
-            _ => packet.routing_header.len() >= 2,
+            _ => {
+                if packet.routing_header.len() > 1 {
+                    Ok(())
+                }
+                else {
+                    Err(PathError::InvalidPath)
+                }
+            },
         }
     }
 
@@ -193,6 +195,32 @@ impl Client {
     }
 
     //---------- send ----------//
+    fn send_unexp_recp(&self, packet: &Packet) {
+        let mut path = packet
+            .routing_header
+            .hops
+            .iter()
+            .copied()
+            .take(packet.routing_header.hop_index)
+            .rev()
+            .collect::<Vec<_>>();
+        path.insert(0, self.id);
+
+        let nack = Packet {
+            routing_header: SourceRoutingHeader {
+                hop_index: 0,
+                hops: path,
+            },
+            session_id: packet.session_id,
+            pack_type: PacketType::Nack(Nack {
+                fragment_index: packet.get_fragment_index(),
+                nack_type: NackType::UnexpectedRecipient(self.id),
+            }),
+        };
+
+        self.send_packet(nack);
+    }
+
     fn send_unsent(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
         for (server, path) in servers {
             if path.len() >= 2 {
