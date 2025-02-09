@@ -14,7 +14,6 @@ use wg_2024::{
 #[derive(Clone)]
 pub struct ServerOptions {
     pub id: NodeId,
-    pub node_type: NodeType,
     pub controller_send: Sender<ServerEvent>,
     pub controller_recv: Receiver<ServerCommand>,
     pub packet_recv: Receiver<Packet>,
@@ -22,7 +21,7 @@ pub struct ServerOptions {
 }
 
 pub struct Server {
-    router: Router,
+    router_opt: RouterOptions,
     controller_send: Sender<ServerEvent>,
     controller_recv: Receiver<ServerCommand>,
     router_send: Receiver<Event>,
@@ -34,14 +33,14 @@ impl Server {
         let (controller_command_send, controller_command_recv) = unbounded();
         let (controller_event_send, controller_event_recv) = unbounded();
         Self {
-            router: Router::new(RouterOptions {
+            router_opt: RouterOptions {
                 id: opt.id,
-                node_type: opt.node_type,
+                node_type: NodeType::Server,
                 controller_send: controller_command_send,
                 controller_recv: controller_event_recv,
                 packet_recv: opt.packet_recv,
                 packet_send: opt.packet_send,
-            }),
+            },
             controller_send: opt.controller_send,
             controller_recv: opt.controller_recv,
             router_send: controller_command_recv,
@@ -50,9 +49,10 @@ impl Server {
     }
 
     pub fn run(&mut self) {
-        rayon::scope(|s| {
-            s.spawn(|_| {
-                self.router.run();
+        let mut router = Router::new(self.router_opt.clone());
+        rayon::scope(move |s| {
+            s.spawn(move |_| {
+                router.run();
             });
             loop {
                 select_biased! {
