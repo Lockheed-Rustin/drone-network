@@ -11,8 +11,8 @@
 //! - **`recover_fragment`**: Attempts to retrieve a missing or dropped message fragment, either by
 //!                           retransmitting it or re-initiating the routing process.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
-use crate::communication_server_code::session_manager::{FragmentIndex, SessionId};
+use crate::communication_server::comm_server_main::CommunicationServer;
+use crate::communication_server::session_manager::{FragmentIndex, SessionId};
 use wg_2024::network::{NodeId, SourceRoutingHeader};
 use wg_2024::packet::{Nack, NackType, NodeType, Packet, PacketType};
 
@@ -60,14 +60,12 @@ impl CommunicationServer {
 
                 if self
                     .session_manager
-                    .already_dropped
-                    .contains(&(session_id, nack.fragment_index))
+                    .already_dropped(session_id, nack.fragment_index)
                 {
                     self.recover_after_nack(session_id, nack.fragment_index, true);
                 } else {
                     self.session_manager
-                        .already_dropped
-                        .insert((session_id, nack.fragment_index));
+                        .already_dropped_insert(session_id, nack.fragment_index);
                     self.recover_after_nack(session_id, nack.fragment_index, false);
                 }
             }
@@ -183,7 +181,7 @@ impl CommunicationServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use wg_2024::packet::Ack;
     #[test]
     fn test_handle_nack() {
@@ -316,8 +314,7 @@ mod tests {
         assert!(test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         let received_packet = test_server_helper
             .packet_recv_3
             .try_recv()
@@ -337,8 +334,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
 
         let _received_flood_req = test_server_helper
             .packet_recv_3
@@ -354,8 +350,7 @@ mod tests {
         assert!(!test_server_helper
             .server
             .session_manager
-            .already_dropped
-            .contains(&(session_id, fragment_index)));
+            .already_dropped(session_id, fragment_index));
         // UNEXPECTED RECIPIENT
         // nothing to do
     }

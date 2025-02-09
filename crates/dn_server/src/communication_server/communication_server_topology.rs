@@ -343,7 +343,7 @@ impl PartialOrd for State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use std::collections::BinaryHeap;
 
     #[test]

@@ -4,7 +4,7 @@
 //! helps in propagating network information across nodes to maintain a consistent view of the
 //! network topology for routing and communication purposes.
 
-use crate::communication_server_code::communication_server::CommunicationServer;
+use crate::communication_server::comm_server_main::CommunicationServer;
 use dn_controller::ServerEvent;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{FloodRequest, FloodResponse, NodeType, Packet, PacketType};
@@ -89,8 +89,7 @@ impl CommunicationServer {
         // Check for pending messages and fragments that can now be sent
         for &(node_id, _) in &response.path_trace {
             if self.pending_messages_queue.has_pending_messages(node_id) {
-                if let Some(messages) = self.pending_messages_queue.take_pending_messages(node_id)
-                {
+                if let Some(messages) = self.pending_messages_queue.take_pending_messages(node_id) {
                     for message in messages {
                         self.send_message(message, node_id);
                     }
@@ -143,14 +142,14 @@ impl CommunicationServer {
                 .expect("Error in controller_send");
         }
 
-        self.session_manager.already_dropped.clear();
+        self.session_manager.already_dropped_clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communication_server_code::test_server_helper::TestServerHelper;
+    use crate::communication_server::test_server_helper::TestServerHelper;
     use crossbeam_channel::unbounded;
     use dn_message::Message;
     use dn_message::ServerBody::ErrUnsupportedRequestType;

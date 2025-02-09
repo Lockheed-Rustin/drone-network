@@ -24,7 +24,8 @@ pub type SessionId = u64;
 pub type FragmentIndex = u64;
 
 /// The `SessionManager` struct is responsible for managing sessions and their associated fragments.
-/// It tracks pending fragments for each session, processes acknowledgments, and manages session states.
+/// It tracks pending fragments for each session, processes acknowledgments, saves if a fragment has been dropped,
+/// and manages session states.
 /// The `SessionManager` also handles the creation and identification of sessions through a session ID counter.
 pub struct SessionManager {
     session_id_counter: SessionId,
@@ -34,7 +35,8 @@ pub struct SessionManager {
     // destination_id -> all the fragments that need to go there. Each fragment is associated with its SessionId
     waiting_fragments: HashMap<NodeId, Vec<(FragmentIndex, SessionId)>>,
 
-    pub(crate) already_dropped: HashSet<(SessionId, FragmentIndex)>,
+    // a hashset containing entries for fragments that have been dropped
+    already_dropped: HashSet<(SessionId, FragmentIndex)>,
 }
 
 impl SessionManager {
@@ -201,6 +203,18 @@ impl SessionManager {
     /// * `Option<&NodeId>` - A reference to the destination node ID if it exists, otherwise `None`.
     pub fn get_pending_sessions_destination(&self, session_id: SessionId) -> Option<&NodeId> {
         self.pending_sessions_destination.get(&session_id)
+    }
+
+    pub fn already_dropped_clear(&mut self) {
+        self.already_dropped.clear();
+    }
+
+    pub fn already_dropped(&self, session_id: SessionId, fragment_index: FragmentIndex) -> bool {
+        self.already_dropped.contains(&(session_id, fragment_index))
+    }
+
+    pub fn already_dropped_insert(&mut self, session_id: SessionId, fragment_index: FragmentIndex) {
+        self.already_dropped.insert((session_id, fragment_index));
     }
 }
 

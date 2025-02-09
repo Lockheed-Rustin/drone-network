@@ -13,7 +13,8 @@ pub struct Server {
 }
 
 impl Server {
-    #[must_use] pub fn new(
+    #[must_use]
+    pub fn new(
         id: NodeId,
         controller_send: Sender<ServerEvent>,
         controller_recv: Receiver<ServerCommand>,
