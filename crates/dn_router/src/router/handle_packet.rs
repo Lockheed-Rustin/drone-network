@@ -63,7 +63,7 @@ impl Router {
                 self.routing.nack(packet.session_id, nack.fragment_index);
             }
             NackType::Dropped => {
-                let drop_id = packet.routing_header.hops.last().cloned().unwrap();
+                let drop_id = packet.routing_header.hops[0];
                 self.routing.update_estimated_pdr(drop_id, true);
                 if self.should_flood() {
                     self.flood();
