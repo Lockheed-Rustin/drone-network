@@ -232,7 +232,18 @@ impl ClientRouting {
             }
         }
     }
-
+    /// Update the information of drones on a path.
+    ///
+    /// This function returns an option to the previously computed path to `destination`,
+    /// if the server is known and if it's marked as reachable.
+    /// If the server is unknown, or it's marked as unreachable, it returns None.
+    ///
+    /// ### Arguments:
+    /// - `destination`: A reference to the ID of the destination node.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<NodeId>)`: An option to a valid path to the destination node ID.
+    /// - `None`: Otherwise.
     pub fn inc_packet_dropped(&mut self, path: &Path) {
         let mut iter = path.iter();
 
@@ -252,10 +263,18 @@ impl ClientRouting {
     }
 
     //---------- compute source routing ----------//
-    /// Returns path to server as Vec<NodeId>.
+    /// Retrieves an option to the previously computed path to `destination`, if any.
     ///
-    /// If the destination server doesn't exist in the topology or the server os actually unreachable,
-    /// returns an appropriate error
+    /// This function returns an option to the previously computed path to `destination`,
+    /// if the server is known and if it's marked as reachable.
+    /// If the server is unknown, or it's marked as unreachable, it returns None.
+    ///
+    /// ### Arguments:
+    /// - `destination`: A reference to the ID of the destination node.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<NodeId>)`: An option to a valid path to the destination node ID.
+    /// - `None`: Otherwise.
     #[must_use]
     pub fn get_path(&self, destination: NodeId) -> Option<Path> {
         match self.servers_info.get(&destination) {
@@ -264,9 +283,15 @@ impl ClientRouting {
         }
     }
 
-    /// Update the information about path from client to the connected servers
+    /// Compute the path from the client to all known servers
+    /// and return servers which became reachable after updating
     ///
-    /// Return an option to a list of servers which became reachable after updating their routing paths.
+    /// This function returns an option to a list of pairs (server, serverPath),
+    /// which contains all servers became reachable after updating their routing path, with their path.
+    ///
+    /// # Returns
+    /// - `Some<Vec<(NodeId, Vec<NodeId>)>>`:  List of server became reachable with their path if any,
+    /// - `None`: If no server became reachable after update.
     pub fn compute_routing_paths(&mut self) -> Option<Vec<(NodeId, Path)>> {
         if self.servers_info.is_empty() {
             return None; //No server in the topology

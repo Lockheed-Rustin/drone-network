@@ -12,6 +12,8 @@ use wg_2024::packet::{
 };
 use wg_2024::{network::NodeId, packet::Packet};
 
+
+
 pub struct Client {
     pub id: NodeId,
     pub controller_send: Sender<ClientEvent>,
@@ -81,7 +83,7 @@ impl Client {
     fn handle_command(&mut self, command: ClientCommand) {
         match command {
             ClientCommand::SendMessage(client_body, to) => {
-                self.handle_send_message(client_body, to)
+                self.handle_send_message(client_body, to);
             }
             ClientCommand::SendFloodRequest => self.send_flood_request(),
             ClientCommand::RemoveSender(n) => self.remove_sender(n),
@@ -226,7 +228,7 @@ impl Client {
             })
             .expect("Error in controller_send");
 
-        self.message_manager.add_pending_fragments(self.session_id, dest, &fragments);
+        self.message_manager.add_pending_session(self.session_id, dest, &fragments);
 
         let mut pkt_not_sended = false;
         for fragment in fragments {
@@ -288,7 +290,7 @@ impl Client {
 
             true
         } else {
-            self.message_manager.add_unsent_fragment(session_id, dest, fragment);
+            self.message_manager.add_unsent_fragment(session_id, dest, &fragment);
 
             false
         }
@@ -312,7 +314,7 @@ impl Client {
 
     //---------- handle ----------//
     fn handle_send_message(&mut self, client_body: ClientBody, dest: NodeId) {
-        if let Some(err) = self.message_manager.is_invalid_send(&client_body, dest) {
+        if let Err(err) = self.message_manager.is_valid_send(&client_body, dest) {
             match err {
                 ServerTypeError::ServerTypeUnknown => {
                     self.message_manager.add_unsent_message(&client_body, dest);
