@@ -35,6 +35,8 @@ pub struct Routing {
     pending_ack: HashMap<(u64, u64), (Packet, NodeId)>,
     /// the key is (session_id, fragment_indext)
     pending_path: HashMap<(u64, u64), (Packet, NodeId)>,
+
+    flood_id: u64,
 }
 
 impl Routing {
@@ -51,7 +53,14 @@ impl Routing {
             controller_send: opt.controller_send,
             pending_ack: HashMap::new(),
             pending_path: HashMap::new(),
+            flood_id: 0,
         }
+    }
+
+    pub fn inc_flood_id(&mut self) -> u64 {
+        let flood_id = self.flood_id;
+        self.flood_id += 1;
+        flood_id
     }
 
     pub fn send_fragment(&mut self, mut packet: Packet, fragment_index: u64, dst: NodeId) -> bool {
@@ -96,7 +105,7 @@ impl Routing {
         }
     }
 
-    pub fn send_flood_request(&self, session_id: u64) {
+    pub fn send_flood_request(&mut self, session_id: u64) {
         let flood_request = Packet {
             routing_header: SourceRoutingHeader {
                 hop_index: 0,
@@ -104,8 +113,8 @@ impl Routing {
             },
             session_id,
             pack_type: PacketType::FloodRequest(FloodRequest {
-                flood_id: 0,
-                initiator_id: 0,
+                flood_id: self.inc_flood_id(),
+                initiator_id: self.id,
                 path_trace: vec![(self.id, self.node_type)],
             }),
         };

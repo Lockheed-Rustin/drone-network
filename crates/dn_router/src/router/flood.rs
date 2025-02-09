@@ -37,4 +37,9 @@ impl Router {
         self.drop_count = (self.drop_count + 1) % 10;
         self.drop_count == 0
     }
+
+    pub(crate) fn flood(&mut self) {
+        let session_id = self.inc_session_id();
+        self.routing.send_flood_request(session_id);
+    }
 }

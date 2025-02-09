@@ -92,9 +92,4 @@ impl Router {
             self.flood();
         }
     }
-
-    pub(crate) fn flood(&mut self) {
-        let session_id = self.inc_session_id();
-        self.routing.send_flood_request(session_id);
-    }
 }
