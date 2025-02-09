@@ -7,6 +7,8 @@ use dn_router::{
     Router, RouterOptions,
 };
 use std::collections::HashMap;
+use std::fs;
+use walkdir::WalkDir;
 use wg_2024::{
     network::NodeId,
     packet::{NodeType, Packet},
@@ -137,7 +139,7 @@ impl ContentServer {
             }
             ClientBody::ClientContent(body) => match body {
                 ClientContentBody::ReqFilesList => self.req_file_list(from),
-                ClientContentBody::ReqFile(file) => self.req_file(&file, from),
+                ClientContentBody::ReqFile(path) => self.req_file(&path, from),
             },
             ClientBody::ClientCommunication(_) => {
                 self.router_recv
@@ -151,10 +153,16 @@ impl ContentServer {
     }
 
     fn req_file_list(&self, from: NodeId) {
-        let files = vec!["a", "b", "c"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let files = WalkDir::new("assets/content_server")
+            .into_iter()
+            .map(|p| {
+                p.unwrap()
+                    .into_path()
+                    .into_os_string()
+                    .into_string()
+                    .unwrap()
+            })
+            .collect();
 
         self.router_recv
             .send(Command::SendMessage(
@@ -166,8 +174,12 @@ impl ContentServer {
             .unwrap();
     }
 
-    fn req_file(&self, _file: &str, from: NodeId) {
-        let bytes = vec![099, 105, 097, 111];
+    fn req_file(&self, path: &str, from: NodeId) {
+        let bytes = if let Ok(bytes) = fs::read(path) {
+            bytes
+        } else {
+            vec![]
+        };
         self.router_recv
             .send(Command::SendMessage(
                 Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
