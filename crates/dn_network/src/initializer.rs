@@ -19,7 +19,7 @@ use wg_2024::{
     network::NodeId,
     packet::{NodeType, Packet},
 };
-use dn_server::communication_server_code::communication_server::CommunicationServer;
+use dn_server::communication_server::comm_server_main::CommunicationServer;
 
 #[derive(Clone, Debug)]
 pub enum NetworkInitError {
