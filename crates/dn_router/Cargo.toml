@@ -1,0 +1,11 @@
+[package]
+name = "dn_router"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossbeam-channel = "0.5.14"
+wg_2024 = { git = "https://github.com/WGL-2024/WGL_repo_2024.git" }
+dn_controller = { path = "../dn_controller/" }
+dn_message = { path = "../dn_message/" }
+petgraph = "0.7.1"

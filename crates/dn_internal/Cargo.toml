@@ -9,3 +9,4 @@ dn_controller = { path = "../dn_controller" }
 dn_message = { path = "../dn_message" }
 dn_network = { path = "../dn_network" }
 dn_server = { path = "../dn_server" }
+dn_router = { path = "../dn_router/" }
