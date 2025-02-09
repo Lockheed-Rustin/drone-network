@@ -99,16 +99,9 @@ impl ContentServer {
                 .controller_send
                 .send(ServerEvent::PacketReceived(packet, id))
                 .unwrap(),
-            Event::MessageAssembled { body, from, to } => {
+            Event::MessageAssembled { body, from, .. } => {
                 if let Message::Client(body) = body {
-                    self.controller_send
-                        .send(ServerEvent::MessageAssembled {
-                            body: body.clone(),
-                            from,
-                            to,
-                        })
-                        .unwrap();
-                    self.handle_client_body(body);
+                    self.handle_client_body(body, from);
                 }
             }
             Event::MessageFragmented { body, from, to } => {
@@ -125,32 +118,39 @@ impl ContentServer {
         };
     }
 
-    fn handle_client_body(&self, body: ClientBody) {
+    fn handle_client_body(&self, body: ClientBody, from: NodeId) {
+        self.controller_send
+            .send(ServerEvent::MessageAssembled {
+                body: body.clone(),
+                from,
+                to: self.id,
+            })
+            .unwrap();
         match body {
             ClientBody::ReqServerType => {
                 self.router_recv
                     .send(Command::SendMessage(
                         Message::Server(ServerBody::RespServerType(ServerType::Content)),
-                        self.id,
+                        from,
                     ))
                     .unwrap();
             }
             ClientBody::ClientContent(body) => match body {
-                ClientContentBody::ReqFilesList => self.req_file_list(),
-                ClientContentBody::ReqFile(file) => self.req_file(&file),
+                ClientContentBody::ReqFilesList => self.req_file_list(from),
+                ClientContentBody::ReqFile(file) => self.req_file(&file, from),
             },
             ClientBody::ClientCommunication(_) => {
                 self.router_recv
                     .send(Command::SendMessage(
                         Message::Server(ServerBody::ErrUnsupportedRequestType),
-                        self.id,
+                        from,
                     ))
                     .unwrap();
             }
         }
     }
 
-    fn req_file_list(&self) {
+    fn req_file_list(&self, from: NodeId) {
         let files = vec!["a", "b", "c"]
             .iter()
             .map(|s| s.to_string())
@@ -161,19 +161,19 @@ impl ContentServer {
                 Message::Server(ServerBody::ServerContent(ServerContentBody::RespFilesList(
                     files,
                 ))),
-                self.id,
+                from,
             ))
             .unwrap();
     }
 
-    fn req_file(&self, _file: &str) {
+    fn req_file(&self, _file: &str, from: NodeId) {
         let bytes = vec![099, 105, 097, 111];
         self.router_recv
             .send(Command::SendMessage(
                 Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
                     bytes,
                 ))),
-                self.id,
+                from,
             ))
             .unwrap();
     }
