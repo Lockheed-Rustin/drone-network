@@ -4,6 +4,7 @@ mod server;
 
 pub use client::*;
 pub use server::*;
+pub use assembler::*;
 
 use bincode::{Decode, Encode};
 use wg_2024::network::NodeId;
