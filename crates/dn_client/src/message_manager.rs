@@ -2,6 +2,8 @@ use dn_message::{ClientBody, ServerType};
 use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
+use scraper::{Html, Selector};
+use std::str;
 
 //---------- SERVER TYPE ERROR ----------//
 pub enum ServerTypeError {
@@ -173,6 +175,48 @@ impl MessageManager {
             if pending_fragment.is_empty() {
                 self.pending_sessions.remove(&session_id);
             }
+        }
+    }
+
+    //---------- file html x external links ----------//
+    #[must_use]
+    pub fn is_html_file(file: &Vec<u8>) -> bool {
+        let info = infer::get(file.as_slice()); // Identify MIME TIPE
+        if let Some(info) = info {
+            info.mime_type() == "text/html" // Check if the MIME type id HTML
+        } else {
+            false
+        }
+    }
+
+    pub fn get_internal_links(file: &Vec<u8>) -> Option<Vec<String>> {
+        let Ok(content) = str::from_utf8(file.as_slice()) else { return None };
+
+        let document = Html::parse_document(content);
+
+        let Ok(a_selector) = Selector::parse("a[href]") else { return None };
+        let Ok(img_selector) = Selector::parse("img[src]") else { return None };
+
+        let mut links = document
+            .select(&a_selector)
+            .filter_map(|element| element.value().attr("href"))
+            .filter(|link| !link.starts_with('#'))
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        links.extend(
+            document
+                .select(&img_selector)
+                .filter_map(|element| element.value().attr("src"))
+                .filter(|link| !link.starts_with('#')) // Escludi anche per le immagini
+                .map(String::from),
+        );
+
+        if links.is_empty() {
+            None
+        }
+        else {
+            Some(links)
         }
     }
 }
