@@ -23,4 +23,5 @@ pub enum Command {
     AddSender(NodeId, Sender<Packet>),
     RemoveSender(NodeId),
     SendMessage(Message, NodeId),
+    Return,
 }

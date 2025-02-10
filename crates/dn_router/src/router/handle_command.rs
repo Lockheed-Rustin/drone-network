@@ -12,6 +12,7 @@ impl Router {
             Command::AddSender(id, sender) => self.routing.add_sender(id, sender),
             Command::RemoveSender(id) => self.routing.remove_sender(id),
             Command::SendMessage(msg, dst) => self.handle_message(msg, dst),
+            Command::Return => (),
         }
     }
     pub(crate) fn handle_message(&mut self, msg: Message, dst: NodeId) {

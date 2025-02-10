@@ -68,10 +68,12 @@ impl ContentServer {
                     recv(self.controller_recv) -> command => {
                         if let Ok(command) = command {
                             if let ServerCommand::Return = command {
+                                self.return_router();
                                 return;
                             }
                             self.handle_command(command);
                         } else {
+                            self.return_router();
                             return;
                         }
                     },
@@ -83,6 +85,10 @@ impl ContentServer {
                 }
             }
         });
+    }
+
+    fn return_router(&self) {
+        self.router_recv.send(Command::Return).unwrap();
     }
 
     fn handle_command(&self, command: ServerCommand) {

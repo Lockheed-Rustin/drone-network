@@ -63,6 +63,9 @@ impl Router {
             select_biased! {
                 recv(self.controller_recv) -> command => {
                     if let Ok(command) = command {
+                        if let Command::Return = command {
+                            return;
+                        }
                         self.handle_command(command);
                     } else {
                         return;
