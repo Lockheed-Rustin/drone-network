@@ -32,7 +32,6 @@ type PendingFragments = HashMap<u64, Fragment>;
 /// - `communication_servers`: A `HashMap` mapping `NodeId` to a boolean value indicating whether a server has already been logged.
 /// - `content_servers`: A `HashSet` of `NodeId` values representing content servers.
 /// - `unsent_messages`: A `HashMap` mapping `NodeId` to a vector of `ClientBody` instances for unsent messages.
-
 pub struct MessageManager {
     pending_sessions: HashMap<u64, (NodeId, PendingFragments)>, // (dest, session_id) -> (fragment_index -> fragment)
     unsent_fragments: HashMap<NodeId, Vec<(u64, Fragment)>>, // dest -> Vec<(session_id, fragment)>
@@ -83,7 +82,6 @@ impl MessageManager {
     /// ### Returns:
     /// - `Ok(())`: If the destination server type matches the `client_body` type (or if the body is `ReqServerType`).
     /// - `Err(ServerTypeError)`: If the destination server type is invalid or unknown.
-
     #[allow(clippy::missing_errors_doc)]
     pub fn is_valid_send(
         &self,
