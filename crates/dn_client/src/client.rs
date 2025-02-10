@@ -332,6 +332,66 @@ impl Client {
         }
     }
 
+    fn smart_sender(&mut self, server_body: &ServerBody, sender: NodeId) {
+        match server_body {
+            ServerBody::RespServerType(server_type) => {
+                self.message_manager.add_server_type(sender, server_type);
+
+                match server_type {
+                    ServerType::Communication
+                    if !self.message_manager.is_reg_to_comm(sender) =>
+                        {
+                            if self.message_manager.is_there_unsent_message(sender) {
+                                self.send_message(
+                                    ClientBody::ClientCommunication(
+                                        ClientCommunicationBody::ReqRegistrationToChat,
+                                    ),
+                                    sender,
+                                );
+                            }
+                        }
+                    _ => {
+                        if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
+                            for client_body in unsent {
+                                self.send_message(client_body, sender);
+                            }
+                        }
+                    }
+                }
+            }
+            ServerBody::ServerCommunication(comm_server_body) => match comm_server_body {
+                ServerCommunicationBody::ErrNotRegistered => {
+                    self.send_message(
+                        ClientBody::ClientCommunication(
+                            ClientCommunicationBody::ReqRegistrationToChat,
+                        ),
+                        sender,
+                    );
+                }
+                ServerCommunicationBody::RegistrationSuccess => {
+                    if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
+                        for client_body in unsent {
+                            self.send_message(client_body, sender);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            ServerBody::ServerContent(ServerContentBody::RespFile(file, _)) => {
+                if MessageManager::is_html_file(file) {
+                    let links = MessageManager::get_internal_links(file);
+                    for link in links {
+                        self.send_message(
+                            ClientBody::ClientContent(ClientContentBody::ReqFile(link)),
+                            sender,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     //---------- handle ----------//
     fn handle_send_message(&mut self, client_body: ClientBody, dest: NodeId) {
         if let Err(err) = self.message_manager.is_valid_send(&client_body, dest) {
@@ -413,63 +473,7 @@ impl Client {
                 })
                 .expect("Error in controller_send");
 
-            match &server_body {
-                ServerBody::RespServerType(server_type) => {
-                    self.message_manager.add_server_type(sender, server_type);
-
-                    match server_type {
-                        ServerType::Communication
-                            if !self.message_manager.is_reg_to_comm(sender) =>
-                        {
-                            if self.message_manager.is_there_unsent_message(sender) {
-                                self.send_message(
-                                    ClientBody::ClientCommunication(
-                                        ClientCommunicationBody::ReqRegistrationToChat,
-                                    ),
-                                    sender,
-                                );
-                            }
-                        }
-                        _ => {
-                            if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
-                                for client_body in unsent {
-                                    self.send_message(client_body, sender);
-                                }
-                            }
-                        }
-                    }
-                }
-                ServerBody::ServerCommunication(comm_server_body) => match comm_server_body {
-                    ServerCommunicationBody::ErrNotRegistered => {
-                        self.send_message(
-                            ClientBody::ClientCommunication(
-                                ClientCommunicationBody::ReqRegistrationToChat,
-                            ),
-                            sender,
-                        );
-                    }
-                    ServerCommunicationBody::RegistrationSuccess => {
-                        if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
-                            for client_body in unsent {
-                                self.send_message(client_body, sender);
-                            }
-                        }
-                    }
-                    _ => {}
-                },
-                ServerBody::ServerContent(ServerContentBody::RespFile(file, _)) => {
-                    if MessageManager::is_html_file(file) {
-                        let links = MessageManager::get_internal_links(file);
-                        for link in links {
-                            self.send_message(
-                                ClientBody::ClientContent(ClientContentBody::ReqFile(link)),
-                                sender,
-                            );
-                        }
-                    }
-                }
-                _ => {}
-            }
+            self.smart_sender(&server_body, sender);
         }
     }
 
@@ -679,10 +683,5 @@ mod tests {
             Fragment::new(0, 1, [0; 128]),
         );
         assert!(!client.check_routing(&not_for_me_fragment).is_ok());
-        // TODO: this test fails
-        // match recv_3.try_recv() {
-        //     Ok(_) => assert!(true),
-        //     Err(_) => assert!(false),
-        // }
     }
 }
