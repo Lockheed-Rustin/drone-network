@@ -13,6 +13,7 @@ use wg_2024::{
     network::NodeId,
 };
 
+#[derive(Debug)]
 pub enum Error {
     /// if the id is not present in the topology
     Missing,
