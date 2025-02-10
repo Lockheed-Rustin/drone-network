@@ -181,11 +181,7 @@ impl ContentServer {
 
     fn req_file(&self, path: &str, from: NodeId) {
         let full_path = PathBuf::from(ASSET_DIR).join(path);
-        let bytes = if let Ok(bytes) = fs::read(full_path) {
-            bytes
-        } else {
-            vec![]
-        };
+        let bytes = fs::read(full_path).unwrap_or_default();
         self.router_recv
             .send(Command::SendMessage(
                 Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
