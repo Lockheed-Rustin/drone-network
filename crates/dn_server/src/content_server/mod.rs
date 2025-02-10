@@ -182,14 +182,24 @@ impl ContentServer {
 
     fn req_file(&self, path: &str, from: NodeId) {
         let full_path = PathBuf::from(ASSET_DIR).join(path);
-        let bytes = fs::read(full_path).unwrap_or_default();
-        self.router_recv
-            .send(Command::SendMessage(
-                Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
-                    bytes,
-                ))),
-                from,
-            ))
-            .unwrap();
+        if let Ok(bytes) = fs::read(full_path) {
+            self.router_recv
+                .send(Command::SendMessage(
+                    Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
+                        bytes,
+                    ))),
+                    from,
+                ))
+                .unwrap();
+        } else {
+            self.router_recv
+                .send(Command::SendMessage(
+                    Message::Server(ServerBody::ServerContent(
+                        ServerContentBody::ErrFileNotFound,
+                    )),
+                    from,
+                ))
+                .unwrap();
+        }
     }
 }
