@@ -31,9 +31,9 @@ pub struct Routing {
     packet_send: HashMap<NodeId, Sender<Packet>>,
     controller_send: Sender<Event>,
 
-    /// the key is (session_id, fragment_indext)
+    /// the key is (`session_id`, `fragment_index`)
     pending_ack: HashMap<(u64, u64), (Packet, NodeId)>,
-    /// the key is (session_id, fragment_indext)
+    /// the key is (`session_id`, `fragment_index`)
     pending_path: HashMap<(u64, u64), (Packet, NodeId)>,
 
     flood_id: u64,
@@ -73,7 +73,7 @@ impl Routing {
                 if id == self.id {
                     0.0
                 } else if let NodeType::Drone = self.node_types[&id] {
-                    self.estimated_pdr.get(&id).cloned().unwrap_or(DEFAULT_PDR)
+                    self.estimated_pdr.get(&id).copied().unwrap_or(DEFAULT_PDR)
                 } else {
                     f32::INFINITY
                 }
@@ -81,19 +81,16 @@ impl Routing {
             |_| 0.0,
         );
         let session_id = packet.session_id;
-        match path {
-            Some((_, hops)) => {
-                packet.routing_header = SourceRoutingHeader { hop_index: 0, hops };
-                self.send_packet(packet.clone());
-                self.pending_ack
-                    .insert((session_id, fragment_index), (packet, dst));
-                true
-            }
-            None => {
-                self.pending_path
-                    .insert((session_id, fragment_index), (packet, dst));
-                false
-            }
+        if let Some((_, hops)) = path {
+            packet.routing_header = SourceRoutingHeader { hop_index: 0, hops };
+            self.send_packet(packet.clone());
+            self.pending_ack
+                .insert((session_id, fragment_index), (packet, dst));
+            true
+        } else {
+            self.pending_path
+                .insert((session_id, fragment_index), (packet, dst));
+            false
         }
     }
 
@@ -117,7 +114,7 @@ impl Routing {
                 path_trace: vec![(self.id, self.node_type)],
             }),
         };
-        for (_, sender) in self.packet_send.iter() {
+        for sender in self.packet_send.values() {
             sender.send(flood_request.clone()).unwrap();
             self.controller_send
                 .send(Event::PacketSent(flood_request.clone()))
@@ -153,8 +150,8 @@ impl Routing {
         *pdr = if dropped { ALPHA } else { 0.0 } + (1.0 - ALPHA) * *pdr;
     }
 
-    pub fn add_path(&mut self, path: Vec<(NodeId, NodeType)>) {
-        for (id, node_type) in path.iter().cloned() {
+    pub fn add_path(&mut self, path: &[(NodeId, NodeType)]) {
+        for (id, node_type) in path.iter().copied() {
             self.node_types.insert(id, node_type);
         }
         let mut updated = false;

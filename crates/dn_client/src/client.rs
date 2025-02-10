@@ -5,7 +5,8 @@ use dn_message::{
     Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody,
     ServerType,
 };
-use std::collections::{hash_map, HashMap};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use wg_2024::network::SourceRoutingHeader;
 use wg_2024::packet::{
     Ack, FloodRequest, FloodResponse, Fragment, Nack, NackType, NodeType, PacketType,
@@ -175,7 +176,7 @@ impl Client {
     }
 
     fn add_sender(&mut self, n: NodeId, sender: Sender<Packet>) {
-        if let hash_map::Entry::Vacant(e) = self.packet_send.entry(n) {
+        if let Entry::Vacant(e) = self.packet_send.entry(n) {
             e.insert(sender);
             if let Some(servers_became_reachable) = self.source_routing.add_channel_to_neighbor(n) {
                 self.send_unsent(servers_became_reachable);

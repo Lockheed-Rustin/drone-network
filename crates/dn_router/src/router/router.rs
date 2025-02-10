@@ -35,6 +35,7 @@ pub struct Router {
 }
 
 impl Router {
+    #[must_use]
     pub fn new(opt: RouterOptions) -> Self {
         let (fragment_queue_send, fragment_queue_recv) = unbounded();
         Self {

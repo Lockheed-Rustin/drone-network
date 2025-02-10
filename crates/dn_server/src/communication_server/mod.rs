@@ -1,4 +1,3 @@
-#[allow(clippy::module_inception)]
 mod communication_server;
 mod communication_server_topology;
 mod handlers;

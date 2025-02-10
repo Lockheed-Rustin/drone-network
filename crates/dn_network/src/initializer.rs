@@ -1,4 +1,4 @@
-use crate::fair_drones::{fair_drones, fair_drones_adapter, DroneOptions, FairDrones};
+use crate::fair_drones::{adapter, fair_drones, DroneOptions, FairDrones};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{
@@ -39,20 +39,26 @@ pub enum NetworkInitError {
     Directed,
 }
 
+/// # Errors
+/// see `NetworkInitError`
 pub fn init_network(config: &Config) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fair_drones(config, fair_drones())
+    init_network_with_fair_drones(config, &fair_drones())
 }
 
+/// # Errors
+/// see `NetworkInitError`
 pub fn init_network_with_drone<D: Drone + 'static>(
     config: &Config,
     group_name: String,
 ) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fair_drones(config, fair_drones_adapter::<D>(group_name))
+    init_network_with_fair_drones(config, &adapter::<D>(group_name))
 }
 
+/// # Errors
+/// see `NetworkInitError`
 fn init_network_with_fair_drones(
     config: &Config,
-    drones: FairDrones,
+    drones: &FairDrones,
 ) -> Result<SimulationController, NetworkInitError> {
     let topology = init_topology(config)?;
 
@@ -77,7 +83,7 @@ fn init_network_with_fair_drones(
     let client_pool = ThreadPoolBuilder::new().build().unwrap();
     let server_pool = ThreadPoolBuilder::new().build().unwrap();
 
-    let drones = drone_options(config, &mut nodes, &packets, &drone_send, &drones);
+    let drones = drone_options(config, &mut nodes, &packets, &drone_send, drones);
     let clients = client_options(config, &mut nodes, &packets, &client_send);
     let servers = server_options(config, &mut nodes, &packets, &server_send);
 
@@ -304,7 +310,7 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
             graph.add_edge(client.id, *neighbor_id, ());
         }
     }
-    for server in config.server.iter() {
+    for server in &config.server {
         for neighbor_id in &server.connected_drone_ids {
             if server.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);

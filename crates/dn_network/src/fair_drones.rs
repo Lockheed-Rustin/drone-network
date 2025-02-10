@@ -81,8 +81,7 @@ pub fn fair_drones() -> FairDrones {
     )
 }
 
-#[allow(clippy::module_name_repetitions)]
-pub fn fair_drones_adapter<D: Drone + 'static>(group_name: String) -> FairDrones {
+pub fn adapter<D: Drone + 'static>(group_name: String) -> FairDrones {
     FairDrones(Vec::from([Box::new(FD::<D> {
         group_name,
         marker: PhantomData,

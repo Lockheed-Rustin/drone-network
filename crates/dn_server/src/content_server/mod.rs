@@ -9,7 +9,7 @@ use dn_router::{
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 use wg_2024::{
     network::NodeId,
     packet::{NodeType, Packet},
@@ -36,6 +36,7 @@ pub struct ContentServer {
 }
 
 impl ContentServer {
+    #[must_use]
     pub fn new(opt: ContentServerOptions) -> Self {
         let (controller_command_send, controller_command_recv) = unbounded();
         let (controller_event_send, controller_event_recv) = unbounded();
@@ -81,7 +82,7 @@ impl ContentServer {
                     }
                 }
             }
-        })
+        });
     }
 
     fn handle_command(&self, command: ServerCommand) {
@@ -159,7 +160,7 @@ impl ContentServer {
         let files = WalkDir::new(ASSET_DIR)
             .into_iter()
             .flatten()
-            .map(|d| d.into_path())
+            .map(DirEntry::into_path)
             .filter(|p| p.is_file())
             .map(|p| {
                 p.strip_prefix(ASSET_DIR)

@@ -10,7 +10,7 @@ impl Router {
         let mut hops = flood_request
             .path_trace
             .iter()
-            .cloned()
+            .copied()
             .map(|(id, _)| id)
             .rev()
             .collect::<Vec<_>>();
@@ -29,8 +29,8 @@ impl Router {
         });
     }
 
-    pub(crate) fn handle_flood_response(&mut self, flood: FloodResponse) {
-        self.routing.add_path(flood.path_trace);
+    pub(crate) fn handle_flood_response(&mut self, flood: &FloodResponse) {
+        self.routing.add_path(&flood.path_trace);
     }
 
     pub(crate) fn should_flood(&mut self) -> bool {
