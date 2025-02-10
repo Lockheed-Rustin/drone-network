@@ -63,6 +63,7 @@ pub struct SimulationControllerOptions {
     pub server_pool: ThreadPool,
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct SimulationController {
     nodes: HashMap<NodeId, Node>,
 
@@ -81,6 +82,7 @@ pub struct SimulationController {
 }
 
 impl SimulationController {
+    #[must_use]
     pub fn new(opt: SimulationControllerOptions) -> Self {
         Self {
             nodes: opt.nodes,
@@ -94,18 +96,22 @@ impl SimulationController {
         }
     }
 
+    #[must_use]
     pub fn get_drone_recv(&self) -> Receiver<DroneEvent> {
         self.drone_recv.clone()
     }
 
+    #[must_use]
     pub fn get_server_recv(&self) -> Receiver<ServerEvent> {
         self.server_recv.clone()
     }
 
+    #[must_use]
     pub fn get_client_recv(&self) -> Receiver<ClientEvent> {
         self.client_recv.clone()
     }
 
+    #[must_use]
     pub fn get_drone_ids(&self) -> Vec<NodeId> {
         self.nodes
             .iter()
@@ -116,6 +122,7 @@ impl SimulationController {
             .collect()
     }
 
+    #[must_use]
     pub fn get_client_ids(&self) -> Vec<NodeId> {
         self.nodes
             .iter()
@@ -126,6 +133,7 @@ impl SimulationController {
             .collect()
     }
 
+    #[must_use]
     pub fn get_server_ids(&self) -> Vec<NodeId> {
         self.nodes
             .iter()
@@ -163,7 +171,7 @@ impl SimulationController {
         // We need to return the OPPOSITE of what petgraph::graphmap::add_edge returns
         match self.topology.add_edge(a, b, ()) {
             None => Some(()),
-            Some(_) => None,
+            Some(()) => None,
         }
     }
 
@@ -190,7 +198,7 @@ impl SimulationController {
         sender.send(DroneCommand::Crash).ok()?;
         // remove all senders
         for neighbor in self.topology.neighbors(id) {
-            self.remove_sender(neighbor, id)?
+            self.remove_sender(neighbor, id)?;
         }
         self.nodes.remove(&id);
 
@@ -210,6 +218,7 @@ impl SimulationController {
         }
     }
 
+    #[must_use]
     pub fn get_pdr(&self, drone_id: NodeId) -> Option<f32> {
         match &self.nodes.get(&drone_id)?.node_type {
             NodeType::Drone { pdr, .. } => Some(*pdr),
@@ -217,6 +226,7 @@ impl SimulationController {
         }
     }
 
+    #[must_use]
     pub fn get_group_name(&self, drone_id: NodeId) -> Option<&str> {
         match &self.nodes.get(&drone_id)?.node_type {
             NodeType::Drone { group_name, .. } => Some(group_name),
@@ -224,6 +234,7 @@ impl SimulationController {
         }
     }
 
+    #[must_use]
     pub fn client_send_message(
         &self,
         client_id: NodeId,
@@ -234,16 +245,19 @@ impl SimulationController {
         sender.send(ClientCommand::SendMessage(body, dest)).ok()
     }
 
+    #[must_use]
     pub fn shortcut(&self, p: Packet) -> Option<()> {
         let dest_id = p.routing_header.hops.last()?;
         let sender = &self.nodes.get(dest_id)?.packet_send;
         sender.send(p).ok()
     }
 
+    #[must_use]
     pub fn get_topology(&self) -> &Topology {
         &self.topology
     }
 
+    #[must_use]
     pub fn is_valid_topology(&self) -> bool {
         if connected_components(&self.topology) != 1 {
             return false;
@@ -275,7 +289,7 @@ impl SimulationController {
         let valid = self.is_valid_topology();
         // restore the topology
         self.topology.add_node(id);
-        for neighbor in neighbors.iter() {
+        for neighbor in &neighbors {
             self.topology.add_edge(id, *neighbor, ());
         }
 
