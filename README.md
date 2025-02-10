@@ -103,15 +103,15 @@ It also provides some smart function to improve user's expierence.
 
 The **Client** internally uses additional structs:
 
-**`Assembler`**
+- **`Assembler`**
 defined in the `dn_message` crate
 
-**`ClientRouting`**
+- **`ClientRouting`**
 it provides all function to compute routing, maintaing saved paths for efficient communication.
 It provides supports to storing information about drones to extimate drone's pdr.
 It manages the network topology, representing nodes and connections as a graph.
 
-**`MessageManager`**
+- **`MessageManager`**
 It handle all pending `Fragments` that have not yet been accepted, providing them to the client when it needs them.
 It also handle all `Fragments` that could not be sent due to the lack of a known path and. Once a path is discovered, 
 these `Fragments` are retrieved and forwarded.
