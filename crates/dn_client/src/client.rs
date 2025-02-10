@@ -175,10 +175,8 @@ impl Client {
     }
 
     fn add_sender(&mut self, n: NodeId, sender: Sender<Packet>) {
-        if self.packet_send.contains_key(&n) || self.packet_send.len() < 2 {
-            //client can't have more than 2 senders
+        if !self.packet_send.contains_key(&n) {
             self.packet_send.insert(n, sender);
-
             if let Some(servers_became_reachable) = self.source_routing.add_channel_to_neighbor(n) {
                 self.send_unsent(servers_became_reachable);
             }
