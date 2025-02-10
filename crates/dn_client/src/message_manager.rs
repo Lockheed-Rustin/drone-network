@@ -1,9 +1,9 @@
 use dn_message::{ClientBody, ServerType};
+use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
+use std::str;
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
-use scraper::{Html, Selector};
-use std::str;
 
 //---------- SERVER TYPE ERROR ----------//
 pub enum ServerTypeError {
@@ -190,12 +190,18 @@ impl MessageManager {
     }
 
     pub fn get_internal_links(file: &Vec<u8>) -> Vec<String> {
-        let Ok(content) = str::from_utf8(file.as_slice()) else { return Vec::new() };
+        let Ok(content) = str::from_utf8(file.as_slice()) else {
+            return Vec::new();
+        };
 
         let document = Html::parse_document(content);
 
-        let Ok(a_selector) = Selector::parse("a[href]") else { return Vec::new() };
-        let Ok(img_selector) = Selector::parse("img[src]") else { return Vec::new() };
+        let Ok(a_selector) = Selector::parse("a[href]") else {
+            return Vec::new();
+        };
+        let Ok(img_selector) = Selector::parse("img[src]") else {
+            return Vec::new();
+        };
 
         let mut links = document
             .select(&a_selector)
@@ -352,7 +358,6 @@ mod tests {
         assert!(message_manager.get_unsent_message(dest).is_some());
         assert!(!message_manager.is_there_unsent_message(dest));
 
-
         //---------- parser html ----------//
         let html_content = b"<!DOCTYPE html><html><body>Hello, world!</body></html>".to_vec();
         let not_html_content = b"Questo non HTML.".to_vec();
@@ -365,7 +370,8 @@ mod tests {
                 <body>
                     <a href=\"media\\\\quack.png\">lol</a>
                 </body>
-            </html>".to_vec();
+            </html>"
+            .to_vec();
 
         assert!(MessageManager::get_internal_links(&html_content).is_empty());
         let vec = MessageManager::get_internal_links(&html_content_with_links);
