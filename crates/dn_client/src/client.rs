@@ -486,7 +486,6 @@ impl Client {
     /// ### Arguments:
     /// - `server_body`: The server's response body.
     /// - `sender`: The node ID of the sender.
-
     fn smart_sender(&mut self, server_body: &ServerBody, sender: NodeId) {
         match server_body {
             ServerBody::RespServerType(server_type) => {
