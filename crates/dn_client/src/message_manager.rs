@@ -189,13 +189,13 @@ impl MessageManager {
         }
     }
 
-    pub fn get_internal_links(file: &Vec<u8>) -> Option<Vec<String>> {
-        let Ok(content) = str::from_utf8(file.as_slice()) else { return None };
+    pub fn get_internal_links(file: &Vec<u8>) -> Vec<String> {
+        let Ok(content) = str::from_utf8(file.as_slice()) else { return Vec::new() };
 
         let document = Html::parse_document(content);
 
-        let Ok(a_selector) = Selector::parse("a[href]") else { return None };
-        let Ok(img_selector) = Selector::parse("img[src]") else { return None };
+        let Ok(a_selector) = Selector::parse("a[href]") else { return Vec::new() };
+        let Ok(img_selector) = Selector::parse("img[src]") else { return Vec::new() };
 
         let mut links = document
             .select(&a_selector)
@@ -212,12 +212,7 @@ impl MessageManager {
                 .map(String::from),
         );
 
-        if links.is_empty() {
-            None
-        }
-        else {
-            Some(links)
-        }
+        links
     }
 }
 
@@ -356,5 +351,29 @@ mod tests {
         assert!(message_manager.is_there_unsent_message(dest));
         assert!(message_manager.get_unsent_message(dest).is_some());
         assert!(!message_manager.is_there_unsent_message(dest));
+
+
+        //---------- parser html ----------//
+        let html_content = b"<!DOCTYPE html><html><body>Hello, world!</body></html>".to_vec();
+        let not_html_content = b"Questo non HTML.".to_vec();
+
+        assert!(MessageManager::is_html_file(&html_content));
+        assert!(!MessageManager::is_html_file(&not_html_content));
+
+        let html_content_with_links = b"<!DOCTYPE html>
+            <html>
+                <body>
+                    <a href=\"media\\\\quack.png\">lol</a>
+                </body>
+            </html>".to_vec();
+
+        assert!(MessageManager::get_internal_links(&html_content).is_empty());
+        let vec = MessageManager::get_internal_links(&html_content_with_links);
+        assert!(!vec.is_empty());
+        assert_eq!(vec.len(), 4);
+        assert!(vec.contains(&"media\\\\quack.png".to_string()));
+        assert!(vec.contains(&"/relative-link".to_string()));
+        assert!(vec.contains(&"https://example.com/image.jpg".to_string()));
+        assert!(vec.contains(&"../relative-image.jpg".to_string()));
     }
 }
