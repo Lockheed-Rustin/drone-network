@@ -143,7 +143,7 @@ impl ContentServer {
             }
             ClientBody::ClientContent(body) => match body {
                 ClientContentBody::ReqFilesList => self.req_file_list(from),
-                ClientContentBody::ReqFile(path) => self.req_file(&path, from),
+                ClientContentBody::ReqFile(path) => self.req_file(path, from),
             },
             ClientBody::ClientCommunication(_) => {
                 self.router_recv
@@ -180,13 +180,13 @@ impl ContentServer {
             .unwrap();
     }
 
-    fn req_file(&self, path: &str, from: NodeId) {
-        let full_path = PathBuf::from(ASSET_DIR).join(path);
+    fn req_file(&self, path: String, from: NodeId) {
+        let full_path = PathBuf::from(ASSET_DIR).join(&path);
         if let Ok(bytes) = fs::read(full_path) {
             self.router_recv
                 .send(Command::SendMessage(
                     Message::Server(ServerBody::ServerContent(ServerContentBody::RespFile(
-                        bytes,
+                        bytes, path,
                     ))),
                     from,
                 ))
