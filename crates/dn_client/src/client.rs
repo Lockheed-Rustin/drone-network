@@ -198,8 +198,7 @@ impl Client {
     ///
     /// This function performs routing checks based on the type of packet:
     /// - For `FloodRequest`, the routing is always valid, since it's a "broadcast" packet.
-    /// - For `MsgFragment`, it checks that the path in the `SourceRoutingHeader` is valid,
-    /// that the packet is for the client itself and that it's the last hop..
+    /// - For `MsgFragment`, it checks that the path in the `SourceRoutingHeader` is valid, that the packet is for the client itself and that it's the last hop.
     /// - For other packet types, it ensures that the path in the `SourceRoutingHeader` is valid.
     ///
     /// If any condition is not met, it returns an appropriate `PathError`.
@@ -476,12 +475,12 @@ impl Client {
     /// Provides some smart sending based on the server's response type.
     ///
     /// Processes different types of server responses and takes appropriate actions:
-    /// - **RespServerType**: Adds the server type to the manager and sends messages based on whether the server type is Communication or Content.
+    /// - **`RespServerType`**: Adds the server type to the manager and sends messages based on whether the server type is Communication or Content.
     ///    - If it's a Communication server and the client isn't registered, it sends a registration request.
     ///    - If there are unsent messages, it attempts to resend them.
-    /// - **ServerCommunication (ErrNotRegistered)**: If the server is not registered, it sends a registration request to the server.
-    /// - **ServerCommunication (RegistrationSuccess)**: If the server successfully registers, it attempts to resend any unsent messages.
-    /// - **ServerContent (RespFile)**: If the server returns a file, it checks if the file is HTML. If it is, it extracts internal links and sends requests for each link.
+    /// - **`ServerCommunication(ErrNotRegistered)`**: If the server is not registered, it sends a registration request to the server.
+    /// - **`ServerCommunication(RegistrationSuccess)`**: If the server successfully registers, it attempts to resend any unsent messages.
+    /// - **`ServerContent(RespFile)`**: If the server returns a file, it checks if the file is HTML. If it is, it extracts internal links and sends requests for each link.
     ///
     ///
     /// ### Arguments:
@@ -494,18 +493,16 @@ impl Client {
                 self.message_manager.add_server_type(sender, server_type);
 
                 match server_type {
-                    ServerType::Communication
-                    if !self.message_manager.is_reg_to_comm(sender) =>
-                        {
-                            if self.message_manager.is_there_unsent_message(sender) {
-                                self.send_message(
-                                    ClientBody::ClientCommunication(
-                                        ClientCommunicationBody::ReqRegistrationToChat,
-                                    ),
-                                    sender,
-                                );
-                            }
+                    ServerType::Communication if !self.message_manager.is_reg_to_comm(sender) => {
+                        if self.message_manager.is_there_unsent_message(sender) {
+                            self.send_message(
+                                ClientBody::ClientCommunication(
+                                    ClientCommunicationBody::ReqRegistrationToChat,
+                                ),
+                                sender,
+                            );
                         }
+                    }
                     _ => {
                         if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
                             for client_body in unsent {
