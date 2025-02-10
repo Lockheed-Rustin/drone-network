@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)]
+
 use crate::Message;
 use bincode::config;
 use std::collections::{HashMap, HashSet};

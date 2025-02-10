@@ -1,3 +1,5 @@
-mod server;
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::module_inception)]
 
-pub use server::*;
+pub mod communication_server;
+pub mod content_server;

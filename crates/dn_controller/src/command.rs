@@ -2,15 +2,15 @@ use crossbeam_channel::Sender;
 use dn_message::{ClientBody, ServerBody};
 use wg_2024::{network::NodeId, packet::Packet};
 
+#[allow(clippy::module_name_repetitions)]
 pub enum ClientCommand {
     AddSender(NodeId, Sender<Packet>),
     SendMessage(ClientBody, NodeId),
-    SendFragment,
-    SendFloodRequest,
     RemoveSender(NodeId),
     Return,
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub enum ServerCommand {
     AddSender(NodeId, Sender<Packet>),
     RemoveSender(NodeId),

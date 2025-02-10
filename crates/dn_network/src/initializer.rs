@@ -1,11 +1,12 @@
-use crate::fair_drones::{fair_drones, fair_drones_adapter, DroneOptions, FairDrones};
+use crate::fair_drones::{adapter, fair_drones, DroneOptions, FairDrones};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dn_client::Client;
 use dn_controller::{
     ClientEvent, Node, NodeType as ControllerNodeType, ServerEvent, SimulationController,
     SimulationControllerOptions, Topology,
 };
-use dn_server::Server;
+use dn_server::content_server::ContentServer;
+use dn_server::{communication_server::CommunicationServer, content_server::ContentServerOptions};
 use petgraph::prelude::{DiGraphMap, UnGraphMap};
 use rayon::{
     iter::{IntoParallelIterator, ParallelIterator},
@@ -38,20 +39,26 @@ pub enum NetworkInitError {
     Directed,
 }
 
+/// # Errors
+/// see `NetworkInitError`
 pub fn init_network(config: &Config) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fair_drones(config, fair_drones())
+    init_network_with_fair_drones(config, &fair_drones())
 }
 
+/// # Errors
+/// see `NetworkInitError`
 pub fn init_network_with_drone<D: Drone + 'static>(
     config: &Config,
     group_name: String,
 ) -> Result<SimulationController, NetworkInitError> {
-    init_network_with_fair_drones(config, fair_drones_adapter::<D>(group_name))
+    init_network_with_fair_drones(config, &adapter::<D>(group_name))
 }
 
+/// # Errors
+/// see `NetworkInitError`
 fn init_network_with_fair_drones(
     config: &Config,
-    drones: FairDrones,
+    drones: &FairDrones,
 ) -> Result<SimulationController, NetworkInitError> {
     let topology = init_topology(config)?;
 
@@ -62,13 +69,13 @@ fn init_network_with_fair_drones(
     let (client_send, client_recv) = unbounded();
 
     let mut packets = HashMap::new();
-    for drone in config.drone.iter() {
+    for drone in &config.drone {
         packets.insert(drone.id, unbounded());
     }
-    for client in config.client.iter() {
+    for client in &config.client {
         packets.insert(client.id, unbounded());
     }
-    for server in config.server.iter() {
+    for server in &config.server {
         packets.insert(server.id, unbounded());
     }
 
@@ -76,9 +83,9 @@ fn init_network_with_fair_drones(
     let client_pool = ThreadPoolBuilder::new().build().unwrap();
     let server_pool = ThreadPoolBuilder::new().build().unwrap();
 
-    let drones = drone_options(config, &mut nodes, &packets, drone_send, drones);
-    let clients = client_options(config, &mut nodes, &packets, client_send);
-    let servers = server_options(config, &mut nodes, &packets, server_send);
+    let drones = drone_options(config, &mut nodes, &packets, &drone_send, drones);
+    let clients = client_options(config, &mut nodes, &packets, &client_send);
+    let servers = server_options(config, &mut nodes, &packets, &server_send);
 
     drone_pool.spawn(|| {
         drones.into_par_iter().for_each(|mut drone| drone.run());
@@ -87,7 +94,10 @@ fn init_network_with_fair_drones(
         clients.into_par_iter().for_each(|mut client| client.run());
     });
     server_pool.spawn(|| {
-        servers.into_par_iter().for_each(|mut server| server.run());
+        servers.into_par_iter().for_each(|server| match server {
+            Server::ContentServer(mut server) => server.run(),
+            Server::CommunicationServer(mut server) => server.run(),
+        });
     });
 
     Ok(SimulationController::new(SimulationControllerOptions {
@@ -108,7 +118,7 @@ fn get_packet_send(
 ) -> HashMap<NodeId, Sender<Packet>> {
     node_ids
         .iter()
-        .cloned()
+        .copied()
         .map(|id| (id, packets[&id].0.clone()))
         .collect()
 }
@@ -117,8 +127,8 @@ fn drone_options(
     config: &Config,
     nodes: &mut HashMap<NodeId, Node>,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<DroneEvent>,
-    drones: FairDrones,
+    controller_send: &Sender<DroneEvent>,
+    drones: &FairDrones,
 ) -> Vec<Box<dyn Drone>> {
     config
         .drone
@@ -161,7 +171,7 @@ fn client_options(
     config: &Config,
     nodes: &mut HashMap<NodeId, Node>,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<ClientEvent>,
+    controller_send: &Sender<ClientEvent>,
 ) -> Vec<Client> {
     config
         .client
@@ -195,16 +205,22 @@ fn client_options(
         .collect()
 }
 
+enum Server {
+    ContentServer(ContentServer),
+    CommunicationServer(CommunicationServer),
+}
+
 fn server_options(
     config: &Config,
     nodes: &mut HashMap<NodeId, Node>,
     packets: &HashMap<NodeId, (Sender<Packet>, Receiver<Packet>)>,
-    controller_send: Sender<ServerEvent>,
+    controller_send: &Sender<ServerEvent>,
 ) -> Vec<Server> {
     config
         .server
         .iter()
-        .map(|server| {
+        .enumerate()
+        .map(|(i, server)| {
             // controller
             let (server_send, controller_recv) = unbounded();
             nodes.insert(
@@ -222,12 +238,22 @@ fn server_options(
             let packet_send = get_packet_send(packets, &server.connected_drone_ids);
             let id = server.id;
 
-            Server {
-                id,
-                controller_send,
-                controller_recv,
-                packet_send,
-                packet_recv,
+            if i % 2 == 0 {
+                Server::CommunicationServer(CommunicationServer::new(
+                    controller_send,
+                    controller_recv,
+                    packet_send,
+                    packet_recv,
+                    id,
+                ))
+            } else {
+                Server::ContentServer(ContentServer::new(ContentServerOptions {
+                    id,
+                    controller_send,
+                    controller_recv,
+                    packet_recv,
+                    packet_send,
+                }))
             }
         })
         .collect()
@@ -237,21 +263,21 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
     let mut graph = DiGraphMap::new();
     let mut node_types = HashMap::new();
 
-    for drone in config.drone.iter() {
+    for drone in &config.drone {
         if drone.pdr < 0.0 || drone.pdr > 1.0 {
             return Err(NetworkInitError::Pdr);
         }
         graph.add_node(drone.id);
         node_types.insert(drone.id, NodeType::Drone);
     }
-    for client in config.client.iter() {
+    for client in &config.client {
         if !(1..=2).contains(&client.connected_drone_ids.len()) {
             return Err(NetworkInitError::EdgeCount);
         }
         graph.add_node(client.id);
         node_types.insert(client.id, NodeType::Client);
     }
-    for server in config.server.iter() {
+    for server in &config.server {
         if server.connected_drone_ids.len() < 2 {
             return Err(NetworkInitError::EdgeCount);
         }
@@ -259,8 +285,8 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
         node_types.insert(server.id, NodeType::Server);
     }
 
-    for drone in config.drone.iter() {
-        for neighbor_id in drone.connected_node_ids.iter() {
+    for drone in &config.drone {
+        for neighbor_id in &drone.connected_node_ids {
             if drone.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
@@ -270,8 +296,8 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
             graph.add_edge(drone.id, *neighbor_id, ());
         }
     }
-    for client in config.client.iter() {
-        for neighbor_id in client.connected_drone_ids.iter() {
+    for client in &config.client {
+        for neighbor_id in &client.connected_drone_ids {
             if client.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
@@ -284,8 +310,8 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
             graph.add_edge(client.id, *neighbor_id, ());
         }
     }
-    for server in config.server.iter() {
-        for neighbor_id in server.connected_drone_ids.iter() {
+    for server in &config.server {
+        for neighbor_id in &server.connected_drone_ids {
             if server.id == *neighbor_id {
                 return Err(NetworkInitError::SelfLoop);
             }
@@ -303,7 +329,7 @@ fn init_topology(config: &Config) -> Result<Topology, NetworkInitError> {
     for node in graph.nodes() {
         topology.add_node(node);
     }
-    for (a, b, _) in graph.all_edges() {
+    for (a, b, ()) in graph.all_edges() {
         if !graph.contains_edge(b, a) {
             return Err(NetworkInitError::Directed);
         }

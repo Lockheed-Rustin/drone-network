@@ -19,8 +19,14 @@ pub enum ServerType {
 #[derive(Debug, Clone, Encode, Decode)]
 pub enum ServerContentBody {
     RespFilesList(Vec<String>),
-    RespFile(Vec<u8>),
+    RespFile(Vec<u8>, String),
     ErrFileNotFound,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub enum FileType {
+    Image,
+    Text,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

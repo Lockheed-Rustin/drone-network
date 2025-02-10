@@ -1,7 +1,10 @@
+#![allow(clippy::module_name_repetitions)]
+
 pub mod assembler;
 mod client;
 mod server;
 
+pub use assembler::*;
 pub use client::*;
 pub use server::*;
 
