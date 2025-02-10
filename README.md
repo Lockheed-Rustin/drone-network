@@ -98,4 +98,8 @@ Most of the files in this module have associated unit tests to verify the implem
 
 ## Usage
 
-todo
+Add this to your `Cargo.toml`:
+```toml
+[dependencies]
+drone_network = { git = "https://github.com/Lockheed-Rustin/drone-network.git" }
+```
