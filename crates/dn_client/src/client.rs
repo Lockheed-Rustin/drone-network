@@ -1,7 +1,10 @@
 use crate::{ClientRouting, MessageManager, ServerTypeError};
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
-use dn_message::{Assembler, ClientBody, ClientCommunicationBody, ClientContentBody, Message, ServerBody, ServerCommunicationBody, ServerContentBody, ServerType};
+use dn_message::{
+    Assembler, ClientBody, ClientCommunicationBody, ClientContentBody, Message, ServerBody,
+    ServerCommunicationBody, ServerContentBody, ServerType,
+};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use wg_2024::network::SourceRoutingHeader;
@@ -416,17 +419,17 @@ impl Client {
 
                     match server_type {
                         ServerType::Communication
-                        if !self.message_manager.is_reg_to_comm(sender) =>
-                            {
-                                if self.message_manager.is_there_unsent_message(sender) {
-                                    self.send_message(
-                                        ClientBody::ClientCommunication(
-                                            ClientCommunicationBody::ReqRegistrationToChat,
-                                        ),
-                                        sender,
-                                    );
-                                }
+                            if !self.message_manager.is_reg_to_comm(sender) =>
+                        {
+                            if self.message_manager.is_there_unsent_message(sender) {
+                                self.send_message(
+                                    ClientBody::ClientCommunication(
+                                        ClientCommunicationBody::ReqRegistrationToChat,
+                                    ),
+                                    sender,
+                                );
                             }
+                        }
                         _ => {
                             if let Some(unsent) = self.message_manager.get_unsent_message(sender) {
                                 for client_body in unsent {
