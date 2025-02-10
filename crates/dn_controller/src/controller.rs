@@ -24,9 +24,13 @@ pub enum Error {
     /// e.g. calling `set_pdr` on a client
     InvalidNode,
     /// this error can only be returned when you try to
-    /// crash a drone that would alter the topology
+    /// crash a drone or add an edge
+    /// that would alter the topology
     /// in such a way that's not allowed by the protocol
     InvalidTopology,
+    /// edge already exist
+    /// when trying to add an edge
+    EdgeExists,
 }
 
 impl<T> From<SendError<T>> for Error {
@@ -202,10 +206,17 @@ impl SimulationController {
     /// # Errors
     /// see `Error`
     pub fn add_edge(&mut self, a: NodeId, b: NodeId) -> Result<()> {
-        self.add_sender(a, b)?;
-        self.add_sender(b, a)?;
-        self.topology.add_edge(a, b, ());
-        Ok(())
+        if self.topology.add_edge(a, b, ()).is_none() {
+            if self.is_valid_topology() {
+                self.add_sender(a, b)?;
+                self.add_sender(b, a)
+            } else {
+                self.topology.remove_edge(a, b);
+                Err(Error::InvalidTopology)
+            }
+        } else {
+            Err(Error::EdgeExists)
+        }
     }
 
     /// # Errors
