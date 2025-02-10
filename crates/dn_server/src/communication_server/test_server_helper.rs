@@ -1,4 +1,4 @@
-use crate::communication_server::comm_server_main::CommunicationServer;
+use crate::communication_server::communication_server::CommunicationServer;
 use crate::communication_server::communication_server_topology::CommunicationServerNetworkTopology;
 use crate::communication_server::session_manager::SessionId;
 use crossbeam_channel::{unbounded, Receiver, Sender};
