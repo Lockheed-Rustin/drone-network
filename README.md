@@ -28,9 +28,32 @@ which allows you to fragment a message and re-assemble a fragmented message.
 - **dn_controller**: Contains the `SimulationController`, which acts as a back-end exposing APIs to interact with the simulation 
 controller. *(Developed by Lorenzo Ferranti)*
 
+- **dn_router**: Contains support code for the routing of messages, used by the **Content Server**
+
 ## Content Server
 
 *This is Daniele Di Cesare individual contribution*
+
+The **Content Server** code is contained within the `dn_server/src/content_server` directory.
+
+The **main file** is `content_server.rs`, which defines the `ContentServer` struct and its two public functions:
+
+- `pub fn new(...) -> Self`
+- `pub fn run(&mut self)`
+
+In this file there is mostly logic to handle the content_server `Commands` like `ReqFileList` and `ReqFile`.
+And to forward the `SimulationController` `Commands` and `Messages` to `dn_router/src/router`.
+
+The logic to handle the routing and fragmenting of `Message`s is implemented in `dn_router/src/router` and `dn_router/src/routing`.
+
+### `dn_router/src/router`
+
+This receives all the `Packets` and `Commands` and then call's methods on `Assembler` and `Routing`.
+
+### `dn_router/src/routing`
+
+This is a struct to handle the sending of `Fragment`s. When a `Fragment` cannot be sent due to missing information of the topology
+it's stored in a queue and sent later when a path is known.
 
 ## Communication Server
 
