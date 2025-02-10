@@ -13,11 +13,34 @@ use wg_2024::packet::{
 };
 use wg_2024::{network::NodeId, packet::Packet};
 
+/// Represents errors related to the path of a  packet.
+///
+/// This enum defines the different types of errors that can occur when dealing with paths in the communication system.
+///
+/// ### Variants:
+/// - `UnexpectedRecipient`: Indicates that the received a packet not designated to itself.
+/// - `InvalidPath`: Indicates that the path in the `SourceRoutingHeader` of the packet is invalid.
 pub enum PathError {
     UnexpectedRecipient,
     InvalidPath,
 }
 
+/// Represents a client with its communication channels, session information, and message management.
+///
+/// This struct contains the necessary fields to manage the client's state, communication, and routing for sending
+/// and receiving packets, as well as managing messages and sessions.
+///
+/// ### Fields:
+/// - `id`: The unique `NodeId` identifier for the client.
+/// - `controller_send`: A `Sender<ClientEvent>` for sending events to the controller.
+/// - `controller_recv`: A `Receiver<ClientCommand>` for receiving commands from the controller.
+/// - `packet_send`: A `HashMap` mapping `NodeId` to `Sender<Packet>`, used for sending packets to different nodes.
+/// - `packet_recv`: A `Receiver<Packet>` for receiving packets from other nodes.
+/// - `session_id`: The session ID associated with the client.
+/// - `flood_id`: The flood ID associated with the client.
+/// - `assembler`: The `Assembler` responsible for reassembling fragments for the client.
+/// - `source_routing`: The `ClientRouting` structure used for routing packets from the client.
+/// - `message_manager`: The `MessageManager` that handles message fragments, sessions, and unsent messages.
 pub struct Client {
     pub id: NodeId,
     pub controller_send: Sender<ClientEvent>,
@@ -33,6 +56,20 @@ pub struct Client {
 }
 
 impl Client {
+    /// Creates a new instance of `Client` with the provided parameters.
+    ///
+    /// This function initializes a new `Client` struct, setting up its communication channels, routing, and message management.
+    /// It also initializes the `source_routing` and adds channels to neighbors based on the provided `packet_send` mapping.
+    ///
+    /// ### Arguments:
+    /// - `id`: The unique `NodeId` identifier for the client.
+    /// - `controller_send`: The `Sender<ClientEvent>` for sending events to the controller.
+    /// - `controller_recv`: The `Receiver<ClientCommand>` for receiving commands from the controller.
+    /// - `packet_send`: A `HashMap<NodeId, Sender<Packet>>` used for sending packets to different nodes.
+    /// - `packet_recv`: A `Receiver<Packet>` for receiving packets from other nodes.
+    ///
+    /// ### Returns:
+    /// - A new instance of `Client` initialized with the provided parameters and default values for the session and flood IDs.
     #[must_use]
     pub fn new(
         id: NodeId,
@@ -61,6 +98,11 @@ impl Client {
         }
     }
 
+    /// Runs the main event loop for the client, handling commands and packets.
+    ///
+    /// This function sends an initial flood request and enters a loop where it waits for and processes commands from the controller
+    /// and packets from the network. It handles commands using the `handle_command` function and packets using the `handle_packet` function.
+    /// The loop continues until a `ClientCommand::Return` command is received, which causes the loop to exit and the function to return.
     pub fn run(&mut self) {
         self.send_flood_request();
 
@@ -84,6 +126,12 @@ impl Client {
     }
 
     //---------- handle receiver ----------//
+    /// Handles a command received from the controller.
+    ///
+    /// This function processes different types of `ClientCommand` and executes the appropriate actions.
+    ///
+    /// ### Arguments:
+    /// - `command`: The `ClientCommand` to handle.
     fn handle_command(&mut self, command: ClientCommand) {
         match command {
             ClientCommand::SendMessage(client_body, to) => {
@@ -95,6 +143,20 @@ impl Client {
         }
     }
 
+    /// Handles a packet received from the network.
+    ///
+    /// It notifies the controller about the received packet using `controller_send`.
+    ///
+    /// It checks the routing of the packet using `check_routing`. If the routing is invalid and the error is `UnexpectedRecipient`,
+    /// it sends a notification using `send_unexp_recp`.
+    ///
+    /// It properly processes the packet, depending on the `pack_type` of the packet.
+    ///
+    /// ### Arguments:
+    /// - `packet`: The `Packet` to handle.
+    ///
+    /// ### Returns:
+    /// - None: This function performs side effects based on the packet but does not return a value.
     fn handle_packet(&mut self, packet: Packet) {
         //notify controller about receiving packet
         self.controller_send
@@ -132,6 +194,22 @@ impl Client {
     }
 
     //---------- check routing ----------//
+    /// Checks the routing of a given packet to ensure it is valid.
+    ///
+    /// This function performs routing checks based on the type of packet:
+    /// - For `FloodRequest`, the routing is always valid, since it's a "broadcast" packet.
+    /// - For `MsgFragment`, it checks that the path in the `SourceRoutingHeader` is valid,
+    /// that the packet is for the client itself and that it's the last hop..
+    /// - For other packet types, it ensures that the path in the `SourceRoutingHeader` is valid.
+    ///
+    /// If any condition is not met, it returns an appropriate `PathError`.
+    ///
+    /// ### Arguments:
+    /// - `packet`: A reference to the `Packet` to check.
+    ///
+    /// ### Returns:
+    /// - `Ok(())`: If the routing is valid.
+    /// - `Err(PathError)`: If the routing is invalid, providing the specific error.
     fn check_routing(&self, packet: &Packet) -> Result<(), PathError> {
         match packet.pack_type {
             PacketType::FloodRequest(_) => Ok(()),
@@ -166,6 +244,14 @@ impl Client {
     }
 
     //---------- add/rmv sender from client ----------//
+    /// Removes a sender from the packet send map and updates the routing.
+    ///
+    /// This function removes the entry corresponding to the given `NodeId` (`n`) from the `packet_send` map
+    /// if the map contains more than one entry. It also removes the channel to the neighbor with the given ID from
+    /// the `source_routing`.
+    ///
+    /// ### Arguments:
+    /// - `n`: The `NodeId` of the sender to remove.
     fn remove_sender(&mut self, n: NodeId) {
         if self.packet_send.len() < 2 {
             return;
@@ -175,6 +261,15 @@ impl Client {
         self.source_routing.remove_channel_to_neighbor(n);
     }
 
+    /// Adds a sender to the packet send map and updates the routing.
+    ///
+    /// This function adds a new sender for the given `NodeId` (`n`) to the `packet_send` map if the entry does not already exist.
+    /// After adding the sender, it updates the `source_routing` by adding a channel to the new neighbor. If any servers become reachable as a result,
+    /// it sends the unsent messages to those servers.
+    ///
+    /// ### Arguments:
+    /// - `n`: The `NodeId` of the neighbor to add.
+    /// - `sender`: The `Sender<Packet>` to add for the specified neighbor.
     fn add_sender(&mut self, n: NodeId, sender: Sender<Packet>) {
         if let Entry::Vacant(e) = self.packet_send.entry(n) {
             e.insert(sender);
@@ -185,6 +280,12 @@ impl Client {
     }
 
     //---------- send ----------//
+    /// Sends a NACK for an unexpected recipient.
+    ///
+    /// This function constructs the appropriate NACK packet and send it using the `send_packet` function.
+    ///
+    /// ### Arguments:
+    /// - `packet`: A reference to the `Packet` that was received and whose routing needs to be handled.
     fn send_unexp_recp(&self, packet: &Packet) {
         let mut path = packet
             .routing_header
@@ -211,6 +312,13 @@ impl Client {
         self.send_packet(nack);
     }
 
+    /// Sends unsent fragments.
+    ///
+    /// This function iterates over the provided list of servers and their corresponding routing paths.
+    /// For every server it gets all unsent fragments and send them to the server via the given path.
+    ///
+    /// ### Arguments:
+    /// - `servers`: A vector of tuples, where each tuple contains a `NodeId` (server) and its corresponding routing path (a vector of `NodeId`s).
     fn send_unsent(&mut self, servers: Vec<(NodeId, Vec<NodeId>)>) {
         for (server, path) in servers {
             if path.len() >= 2 {
@@ -232,6 +340,16 @@ impl Client {
         }
     }
 
+    /// Sends a message to the specified destination.
+    ///
+    /// Sends a message to the specified destination, fragmenting the message using the assembler and
+    /// notifying the controller about the fragmentation. Finally, it incremented the session ID.
+    ///
+    /// If any fragment fails to send, a flood request is initiated.
+    ///
+    /// ### Arguments:
+    /// - `client_body`: The body of the message to send.
+    /// - `dest`: The destination node ID to send the message to.
     fn send_message(&mut self, client_body: ClientBody, dest: NodeId) {
         //fragment message and notify controller
         let fragments = self
@@ -262,6 +380,10 @@ impl Client {
         self.session_id += 1;
     }
 
+    /// Sends a flood request to all nodes.
+    ///
+    /// Creates a `FloodRequest` packet and sends it broadcast. Notifies the controller about the packet sent, resets `already_dropped`,
+    /// increments `session_id` and `flood_id`, and reset the topology in the source routing.
     fn send_flood_request(&mut self) {
         let flood_request_packet = Packet {
             routing_header: SourceRoutingHeader {
@@ -294,6 +416,19 @@ impl Client {
         self.source_routing.clear_topology();
     }
 
+    /// Sends a message fragment to the specified destination.
+    ///
+    /// Attempts to send the fragment to the destination using the routing path. If the path exists, the fragment is sent; otherwise,
+    /// it is added to the list of unsent fragments for later delivery.
+    ///
+    /// ### Arguments:
+    /// - `dest`: The destination node ID.
+    /// - `fragment`: The fragment to send.
+    /// - `session_id`: The session ID associated with the fragment.
+    ///
+    /// ### Returns:
+    /// - `true`: If the fragment was sent successfully.
+    /// - `false`: Otherwise
     fn send_fragment(&mut self, dest: NodeId, fragment: Fragment, session_id: u64) -> bool {
         if let Some(path) = self.source_routing.get_path(dest) {
             let packet = Packet {
@@ -316,6 +451,12 @@ impl Client {
         }
     }
 
+    /// Sends a packet to the next hop in the routing path.
+    ///
+    /// Increases the hop index and sends the packet to the next hop. Notifies the controller about the sent packet.
+    ///
+    /// ### Arguments:
+    /// - `packet`: The packet to send.
     fn send_packet(&self, mut packet: Packet) {
         if let Some(next_hop) = packet.routing_header.next_hop() {
             packet.routing_header.increase_hop_index();
@@ -331,6 +472,21 @@ impl Client {
                 .expect("Error in controller_send");
         }
     }
+
+    /// Provides some smart sending based on the server's response type.
+    ///
+    /// Processes different types of server responses and takes appropriate actions:
+    /// - **RespServerType**: Adds the server type to the manager and sends messages based on whether the server type is Communication or Content.
+    ///    - If it's a Communication server and the client isn't registered, it sends a registration request.
+    ///    - If there are unsent messages, it attempts to resend them.
+    /// - **ServerCommunication (ErrNotRegistered)**: If the server is not registered, it sends a registration request to the server.
+    /// - **ServerCommunication (RegistrationSuccess)**: If the server successfully registers, it attempts to resend any unsent messages.
+    /// - **ServerContent (RespFile)**: If the server returns a file, it checks if the file is HTML. If it is, it extracts internal links and sends requests for each link.
+    ///
+    ///
+    /// ### Arguments:
+    /// - `server_body`: The server's response body.
+    /// - `sender`: The node ID of the sender.
 
     fn smart_sender(&mut self, server_body: &ServerBody, sender: NodeId) {
         match server_body {
@@ -393,6 +549,13 @@ impl Client {
     }
 
     //---------- handle ----------//
+    /// Handles sending messages after validating the server type.
+    ///
+    /// It checks whether the server is valid for the given message, handles server type errors, and sends messages accordingly.
+    ///
+    /// ### Arguments:
+    /// - `client_body`: The message body to be sent.
+    /// - `dest`: The destination node ID.
     fn handle_send_message(&mut self, client_body: ClientBody, dest: NodeId) {
         if let Err(err) = self.message_manager.is_valid_send(&client_body, dest) {
             match err {
@@ -435,6 +598,16 @@ impl Client {
         }
     }
 
+    /// Handles a message fragment received and processes it based on the routing header.
+    ///
+    /// It validates the header's hops and sends an acknowledgment for the fragment. Then, it attempts to reassemble the fragment
+    /// into a complete message. If the message is successfully reassembled, it notifies the controller and forwards the message
+    /// to the appropriate handler.
+    ///
+    /// ### Arguments:
+    /// - `fragment`: The received fragment to be processed.
+    /// - `header`: The routing header associated with the packet.
+    /// - `session_id`: The session identifier for the current message exchange.
     fn handle_fragment(
         &mut self,
         fragment: &Fragment,
@@ -477,6 +650,13 @@ impl Client {
         }
     }
 
+    /// Handles a flood response and updates the routing paths.
+    ///
+    /// It processes the flood response, updating the routing paths with the provided trace. If any servers become reachable,
+    /// it sends the unsent messages to those servers.
+    ///
+    /// ### Arguments:
+    /// - `flood_response`: The flood response containing the path trace to update the routing information.
     fn handle_flood_response(&mut self, flood_response: &FloodResponse) {
         if let Some(servers_became_reachable) =
             self.source_routing.add_path(&flood_response.path_trace)
@@ -485,6 +665,14 @@ impl Client {
         }
     }
 
+    /// Handles an acknowledgment packet.
+    ///
+    /// It processes the acknowledgment, confirms the received fragment, and updates the routing information based on the sender.
+    ///
+    /// ### Arguments:
+    /// - `ack`: The acknowledgment packet containing the fragment index and related data.
+    /// - `header`: The routing header for the packet containing the hop information.
+    /// - `session_id`: The session ID for the message.
     fn handle_ack(&mut self, ack: &Ack, header: &SourceRoutingHeader, session_id: u64) {
         if header.hops.len() < 2 {
             return;
@@ -498,6 +686,15 @@ impl Client {
         self.source_routing.correct_send_to(server);
     }
 
+    /// Handles a negative acknowledgment packet.
+    ///
+    /// It processes different types of NACKs such as routing errors, destination issues, dropped packets, and unexpected recipients.
+    /// Depending on the NACK type, the routing table is updated, flood requests are sent, and pending fragments are resent if necessary.
+    ///
+    /// ### Arguments:
+    /// - `nack`: The negative acknowledgment packet containing the NACK type and fragment index.
+    /// - `header`: The routing header for the packet containing the hop information.
+    /// - `session_id`: The session ID for the message.
     fn handle_nack(&mut self, nack: &Nack, header: &SourceRoutingHeader, session_id: u64) {
         match nack.nack_type {
             NackType::ErrorInRouting(node) => {
@@ -536,6 +733,14 @@ impl Client {
         }
     }
 
+    /// Handles a flood request and generates a flood response.
+    ///
+    /// It increments the flood request with the current client's ID, generates a corresponding flood response,
+    /// and sends the response packet.
+    ///
+    /// ### Arguments:
+    /// - `session_id`: The session ID for the current request.
+    /// - `flood_request`: The received flood request to be processed and responded to.
     fn handle_flood_request(&self, session_id: u64, mut flood_request: FloodRequest) {
         flood_request.increment(self.id, NodeType::Client);
         let flood_response = flood_request.generate_response(session_id);
