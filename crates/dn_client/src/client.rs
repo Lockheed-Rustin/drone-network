@@ -2,8 +2,8 @@ use crate::{ClientRouting, MessageManager, ServerTypeError};
 use crossbeam_channel::{select_biased, Receiver, Sender};
 use dn_controller::{ClientCommand, ClientEvent};
 use dn_message::{
-    Assembler, ClientBody, ClientCommunicationBody, Message, ServerBody, ServerCommunicationBody,
-    ServerType,
+    Assembler, ClientBody, ClientCommunicationBody, ClientContentBody, Message, ServerBody,
+    ServerCommunicationBody, ServerContentBody, ServerType,
 };
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -457,6 +457,17 @@ impl Client {
                     }
                     _ => {}
                 },
+                ServerBody::ServerContent(ServerContentBody::RespFile(file, _)) => {
+                    if MessageManager::is_html_file(file) {
+                        let links = MessageManager::get_internal_links(file);
+                        for link in links {
+                            self.send_message(
+                                ClientBody::ClientContent(ClientContentBody::ReqFile(link)),
+                                sender,
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
         }

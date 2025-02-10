@@ -1,5 +1,7 @@
 use dn_message::{ClientBody, ServerType};
+use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
+use std::str;
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
 
@@ -175,6 +177,49 @@ impl MessageManager {
             }
         }
     }
+
+    //---------- file html x external links ----------//
+    #[must_use]
+    pub fn is_html_file(file: &Vec<u8>) -> bool {
+        let info = infer::get(file.as_slice()); // Identify MIME TIPE
+        if let Some(info) = info {
+            info.mime_type() == "text/html" // Check if the MIME type id HTML
+        } else {
+            false
+        }
+    }
+
+    pub fn get_internal_links(file: &Vec<u8>) -> Vec<String> {
+        let Ok(content) = str::from_utf8(file.as_slice()) else {
+            return Vec::new();
+        };
+
+        let document = Html::parse_document(content);
+
+        let Ok(a_selector) = Selector::parse("a[href]") else {
+            return Vec::new();
+        };
+        let Ok(img_selector) = Selector::parse("img[src]") else {
+            return Vec::new();
+        };
+
+        let mut links = document
+            .select(&a_selector)
+            .filter_map(|element| element.value().attr("href"))
+            .filter(|link| !link.starts_with('#'))
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        links.extend(
+            document
+                .select(&img_selector)
+                .filter_map(|element| element.value().attr("src"))
+                .filter(|link| !link.starts_with('#')) // Escludi anche per le immagini
+                .map(String::from),
+        );
+
+        links
+    }
 }
 
 //---------------------------//
@@ -312,5 +357,29 @@ mod tests {
         assert!(message_manager.is_there_unsent_message(dest));
         assert!(message_manager.get_unsent_message(dest).is_some());
         assert!(!message_manager.is_there_unsent_message(dest));
+
+        //---------- parser html ----------//
+        let html_content = b"<!DOCTYPE html><html><body>Hello, world!</body></html>".to_vec();
+        let not_html_content = b"Questo non HTML.".to_vec();
+
+        assert!(MessageManager::is_html_file(&html_content));
+        assert!(!MessageManager::is_html_file(&not_html_content));
+
+        let html_content_with_links = b"<!DOCTYPE html>
+            <html>
+                <body>
+                    <a href=\"media\\\\quack.png\">lol</a>
+                </body>
+            </html>"
+            .to_vec();
+
+        assert!(MessageManager::get_internal_links(&html_content).is_empty());
+        let vec = MessageManager::get_internal_links(&html_content_with_links);
+        assert!(!vec.is_empty());
+        assert_eq!(vec.len(), 4);
+        assert!(vec.contains(&"media\\\\quack.png".to_string()));
+        assert!(vec.contains(&"/relative-link".to_string()));
+        assert!(vec.contains(&"https://example.com/image.jpg".to_string()));
+        assert!(vec.contains(&"../relative-image.jpg".to_string()));
     }
 }
