@@ -72,7 +72,7 @@ All other methods are implemented in separate files within the `handlers` direct
 - **NACK Handling** (`handle_nack.rs`): Defines the actions to be taken when negative acknowledgments are received.
 - **Command Handling** (`handle_command.rs`): Processes commands sent to the communication server by the SC.
 - **Flood Handling** (`handle_flood.rs`): Implements message flooding mechanisms within the network.
-- **Client Services** (`handle_server_services.rs`): Manages requests for sever type, client registration, retrieval 
+- **Server Services** (`handle_server_services.rs`): Manages requests for sever type, client registration, retrieval 
 of registered clients and message forwarding.
 
 The **CommunicationServer** internally uses additional structs:
