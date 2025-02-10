@@ -38,7 +38,7 @@ controller. *(Developed by Lorenzo Ferranti)*
 
 The **Communication Server** code is contained within the `dn_server/src/communication_server` directory.
 
-The **main file** is `communication_server_main.rs`, which defines the `CommunicationServer` struct and its two public functions:
+The **main file** is `communication_server.rs`, which defines the `CommunicationServer` struct and its two public functions:
 
 - `pub fn new(...) -> Self`
 - `pub fn run(&mut self)`
