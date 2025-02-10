@@ -3,20 +3,14 @@ use std::collections::{HashMap, HashSet};
 use wg_2024::network::NodeId;
 use wg_2024::packet::Fragment;
 
-
-
 //---------- SERVER TYPE ERROR ----------//
 pub enum ServerTypeError {
     ServerTypeUnknown,
     WrongServerType,
 }
 
-
-
 //---------- CUSTOM TYPES ----------//
 type PendingFragments = HashMap<u64, Fragment>;
-
-
 
 //---------- MESSAGE MANAGER ----------//
 pub struct MessageManager {
@@ -89,14 +83,18 @@ impl MessageManager {
         matches!(self.communication_servers.get(&dest), Some(&subscribed) if subscribed)
     }
 
-
     //---------- get ----------//
     #[must_use]
-    pub fn get_pending_fragment(&self, session_id: u64, fragment_index: u64) -> Option<(NodeId, Fragment)> {
+    pub fn get_pending_fragment(
+        &self,
+        session_id: u64,
+        fragment_index: u64,
+    ) -> Option<(NodeId, Fragment)> {
         if let Some((dest, pend_fragment)) = self.pending_sessions.get(&session_id) {
-            pend_fragment.get(&fragment_index).map(|fragment| (*dest, fragment.clone()))
-        }
-        else {
+            pend_fragment
+                .get(&fragment_index)
+                .map(|fragment| (*dest, fragment.clone()))
+        } else {
             None
         }
     }
@@ -111,8 +109,6 @@ impl MessageManager {
         self.unsent_messages.remove(&dest)
     }
 
-
-
     //---------- add ----------//
     pub fn add_server_type(&mut self, server: NodeId, server_type: &ServerType) {
         match server_type {
@@ -125,7 +121,12 @@ impl MessageManager {
         }
     }
 
-    pub fn add_pending_session(&mut self, session_id: u64, dest: NodeId, fragments: &Vec<Fragment>) {
+    pub fn add_pending_session(
+        &mut self,
+        session_id: u64,
+        dest: NodeId,
+        fragments: &Vec<Fragment>,
+    ) {
         let mut pending_fragment: PendingFragments = HashMap::new();
 
         for fragment in fragments {
@@ -146,22 +147,15 @@ impl MessageManager {
         unsents.push(client_body.clone());
     }
 
-
     //---------- fragment dropped managment ----------//
     ///Check if a fragment has been already dropped once:
     ///
     pub fn update_fragment_dropped(&mut self, session_id: u64, fragment_index: u64) -> bool {
-        if self
-            .already_dropped
-            .contains(&(session_id, fragment_index))
-        {
-            self
-                .already_dropped
-                .remove(&(session_id, fragment_index));
+        if self.already_dropped.contains(&(session_id, fragment_index)) {
+            self.already_dropped.remove(&(session_id, fragment_index));
             true
         } else {
-            self.already_dropped
-                .insert((session_id, fragment_index));
+            self.already_dropped.insert((session_id, fragment_index));
             false
         }
     }
@@ -170,11 +164,9 @@ impl MessageManager {
         self.already_dropped.clear();
     }
 
-
     //---------- ack managment ----------//
     pub fn confirm_ack(&mut self, session_id: u64, fragment_index: u64) {
-        self.already_dropped
-            .remove(&(session_id, fragment_index));
+        self.already_dropped.remove(&(session_id, fragment_index));
 
         if let Some((_, pending_fragment)) = self.pending_sessions.get_mut(&session_id) {
             pending_fragment.remove(&fragment_index);
@@ -185,19 +177,17 @@ impl MessageManager {
     }
 }
 
-
 //---------------------------//
 //---------- TESTS ----------//
 //---------------------------//
 #[cfg(test)]
 mod tests {
-    use dn_message::ClientContentBody;
     use super::*;
+    use dn_message::ClientContentBody;
 
     //---------- DRONE INFO TEST ----------//
     #[test]
     fn message_manager_test() {
-
         //---------- init ----------//
         let mut message_manager = MessageManager::new();
 
@@ -208,13 +198,12 @@ mod tests {
         assert!(message_manager.content_servers.is_empty());
         assert!(message_manager.unsent_messages.is_empty());
 
-
         //---------- pending fragment ----------//
         let session_id: u64 = 0;
         let dest: NodeId = 5;
         let mut fragments: Vec<Fragment> = Vec::new();
         for i in 0..10u64 {
-            fragments.push(Fragment{
+            fragments.push(Fragment {
                 fragment_index: i,
                 total_n_fragments: 10,
                 length: 0,
@@ -224,14 +213,41 @@ mod tests {
 
         message_manager.add_pending_session(session_id, dest, &fragments);
         assert_eq!(message_manager.pending_sessions.len(), 1);
-        assert_eq!(message_manager.pending_sessions.get(&session_id).unwrap().0, dest);
-        assert_eq!(message_manager.pending_sessions.get(&session_id).unwrap().1.len(), 10);
+        assert_eq!(
+            message_manager.pending_sessions.get(&session_id).unwrap().0,
+            dest
+        );
+        assert_eq!(
+            message_manager
+                .pending_sessions
+                .get(&session_id)
+                .unwrap()
+                .1
+                .len(),
+            10
+        );
 
         message_manager.confirm_ack(session_id, 0);
         assert_eq!(message_manager.pending_sessions.len(), 1);
-        assert_eq!(message_manager.pending_sessions.get(&session_id).unwrap().0, dest);
-        assert_eq!(message_manager.pending_sessions.get(&session_id).unwrap().1.len(), 9);
-        assert!(!message_manager.pending_sessions.get(&session_id).unwrap().1.contains_key(&0));
+        assert_eq!(
+            message_manager.pending_sessions.get(&session_id).unwrap().0,
+            dest
+        );
+        assert_eq!(
+            message_manager
+                .pending_sessions
+                .get(&session_id)
+                .unwrap()
+                .1
+                .len(),
+            9
+        );
+        assert!(!message_manager
+            .pending_sessions
+            .get(&session_id)
+            .unwrap()
+            .1
+            .contains_key(&0));
 
         let fragment = message_manager.get_pending_fragment(session_id, 1);
         assert!(fragment.is_some());
@@ -239,12 +255,14 @@ mod tests {
         let fragment2 = message_manager.get_pending_fragment(session_id, 0);
         assert!(fragment2.is_none());
 
-
         //---------- unsent fragment ----------//
         message_manager.add_unsent_fragment(session_id, dest, &fragments[0]);
         message_manager.add_unsent_fragment(session_id, dest, &fragments[1]);
         assert_eq!(message_manager.unsent_fragments.len(), 1);
-        assert_eq!(message_manager.unsent_fragments.get(&dest).unwrap().len(), 2);
+        assert_eq!(
+            message_manager.unsent_fragments.get(&dest).unwrap().len(),
+            2
+        );
 
         let unsent_fragments = message_manager.get_unsent_fragments(dest);
         assert!(unsent_fragments.is_some());
@@ -252,7 +270,6 @@ mod tests {
         let unsent_fragments = message_manager.get_unsent_fragments(dest);
         assert!(unsent_fragments.is_none());
         assert!(fragment2.is_none());
-
 
         //---------- already dropped ----------//
         assert!(!message_manager.update_fragment_dropped(session_id, 0));
@@ -264,20 +281,22 @@ mod tests {
         message_manager.reset_already_dropped();
         assert_eq!(message_manager.already_dropped.len(), 0);
 
-
         //---------- servers checks ----------//
         let message = ClientBody::ClientContent(ClientContentBody::ReqFile("A".to_string()));
 
         let res = message_manager.is_valid_send(&message, dest);
         assert!(res.is_err());
-        assert!(matches!(res.unwrap_err(), ServerTypeError::ServerTypeUnknown));
+        assert!(matches!(
+            res.unwrap_err(),
+            ServerTypeError::ServerTypeUnknown
+        ));
 
         message_manager.add_server_type(dest, &ServerType::Communication);
         let res = message_manager.is_valid_send(&message, dest);
         assert!(res.is_err());
         assert!(matches!(res.unwrap_err(), ServerTypeError::WrongServerType));
 
-        let new_dest: NodeId = dest+1;
+        let new_dest: NodeId = dest + 1;
         message_manager.add_server_type(new_dest, &ServerType::Content);
         let res = message_manager.is_valid_send(&message, new_dest);
         assert!(res.is_ok());
@@ -286,7 +305,6 @@ mod tests {
         assert!(!message_manager.is_reg_to_comm(dest)); //not registered
         message_manager.communication_servers.insert(dest, true);
         assert!(message_manager.is_reg_to_comm(dest)); //not registered
-
 
         //---------- unsent messages ----------//
         assert!(message_manager.get_unsent_message(dest).is_none());
