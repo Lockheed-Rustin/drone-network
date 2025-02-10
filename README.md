@@ -90,6 +90,33 @@ Most of the files in this module have associated unit tests to verify the implem
 
 *This is Matteo Zendri individual contribution*
 
+The **Client** code is contained within the `dn_client/src/communication_server` directory.
+
+The **main file** is `client.rs`, which defines the `Client` struct and its two public functions:
+
+- `pub fn new(...) -> Self`
+- `pub fn run(&mut self)`
+
+In this file there is the logic to handle the client `Commands` like `SendMessage` amd send packtes.
+And it handle all incoming packets and notify `SimulationController` using `ClientEvent` like `MessageAssembled` and `PacketReceived`.
+It also provides some smart function to improve user's expierence.
+
+The **Client** internally uses additional structs:
+
+##`Assembler`
+defined in the `dn_message` crate
+
+##`ClientRouting`
+it provides all function to compute routing, maintaing saved paths for efficient communication.
+It provides supports to storing information about drones to extimate drone's pdr.
+It manages the network topology, representing nodes and connections as a graph.
+
+##`MessageManager`
+It handle all pending `Fragments` that have not yet been accepted, providing them to the client when it needs them.
+It also handle all `Fragments` that could not be sent due to the lack of a known path and. Once a path is discovered, 
+these `Fragments` are retrieved and forwarded.
+Finally it provides some functions to parse html files and to find them internal links 
+
 ## Contributors
 - **Luca Agostinelli** - Communication Server, Assembler
 - **Daniele Di Cesare** - Content Server
