@@ -12,12 +12,33 @@ type Path = Vec<NodeId>;
 type FloodPath = Vec<(NodeId, NodeType)>;
 
 //---------- QUEUE PRIO TYPE ----------//
+/// Represents a priority value for a queue.
+///
+/// This struct holds a single floating-point value that indicates the priority level of a queue.
+///
+/// ### Fields:
+/// - `prio`: The priority value of the queue.
+///
+/// ### Implementations:
+/// - **`PartialEq`**: Compares two `QP` instances for equality based on their `prio` values.
+/// - **`Eq`**: Allows comparison for equality between `QP` instances.
+/// - **`PartialOrd`**: Provides partial ordering for `QP` instances based on their `prio` values.
+/// - **`Ord`**: Provides full ordering for `QP` instances. Handles `NaN` values by treating them as greater or lesser depending on their position.
 #[derive(Copy, Clone, Debug)]
 struct QP {
     prio: f64,
 }
 
 impl QP {
+    /// Creates a new `QP` instance with the given priority value.
+    ///
+    /// This function initializes a `QP` struct, setting the `prio` field to the specified value.
+    ///
+    /// ### Arguments:
+    /// - `prio`: The priority value to assign to the new `QP` instance.
+    ///
+    /// ### Returns:
+    /// - A new instance of `QP` with the provided `prio` value.
     pub fn new(prio: f64) -> Self {
         Self { prio }
     }
@@ -52,6 +73,13 @@ impl Ord for QP {
 }
 
 //---------- STRUCT SERVER INFO ----------//
+/// Represents the information about a server's connectivity status.
+///
+/// This struct contains the path to the server and whether the server is reachable.
+///
+/// ### Fields:
+/// - `path`: The path to the server.
+/// - `reachable`: A boolean indicating if the server is reachable.
 #[derive(Debug, Default)]
 pub struct ServerInfo {
     path: Path,
@@ -59,6 +87,14 @@ pub struct ServerInfo {
 }
 
 //---------- STRUCT DRONE INFO ----------//
+/// Information about a drone's message transmission performance.
+///
+/// Tracks statistics about messages that have passed through this drone,
+/// including both successful transmissions and failures.
+///
+/// ### Fields:
+/// - `packet_traveled`: Count of messages successfully transmitted through this drone.
+/// - `packet_dropped`: Count of messages that failed to transmit through this drone.
 #[derive(Default, Debug)]
 pub struct DroneInfo {
     packet_traveled: u64,
@@ -66,8 +102,14 @@ pub struct DroneInfo {
 }
 
 impl DroneInfo {
-    /// `rps_factor`: real packet sent factor
-    /// Returns the estimated number of packet to send for every packet which has been delivered
+    /// Calculates the RPS (Real Packet Sent) factor for the drone.
+    ///
+    /// This function computes a score based on the ratio of packets dropped to packets traveled.
+    /// If no packets have been traveled or dropped, the score defaults to `1.0`.
+    /// Otherwise, the score is calculated as the sum of the powers of the Packet Drop Ratio (PDR) up to the 10th power.
+    ///
+    /// ### Returns:
+    /// - `f64`: The calculated RPS factor.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn rps_factor(&self) -> f64 {
@@ -84,11 +126,17 @@ impl DroneInfo {
             rps
         }
     }
-
+    /// Increments the count of correctly traveled packets.
+    ///
+    /// This function increases the `packet_traveled` field by 1 to track an additional successfully traveled packet.
     pub fn inc_correct_traveled(&mut self) {
         self.packet_traveled += 1;
     }
 
+    /// Increments the count of both traveled and dropped packets.
+    ///
+    /// This function increases the `packet_traveled` field by 1 to track an additional packet
+    /// and simultaneously increments the `packet_dropped` field by 1 to reflect a dropped packet.
     pub fn inc_dropped(&mut self) {
         self.packet_traveled += 1;
         self.packet_dropped += 1;
@@ -96,6 +144,17 @@ impl DroneInfo {
 }
 
 //---------- CLIENT'S SOURCE ROUTING ----------//
+/// Network routing manager for a client node.
+///
+/// Manages network topology, routing paths, and information about servers,
+/// drones, and other clients in the network.
+///
+/// ### Fields:
+/// - `client_id`: The unique identifier of this client node.
+/// - `topology`: An undirected graph representing the network structure.
+/// - `servers_info`: Information about known servers and their routing paths.
+/// - `drones_info`: Information about drone nodes and their performance metrics.
+/// - `clients`: Set of known client nodes in the network.
 pub struct ClientRouting {
     client_id: NodeId,
     topology: UnGraphMap<NodeId, ()>,
@@ -105,6 +164,16 @@ pub struct ClientRouting {
 }
 
 impl ClientRouting {
+    /// Creates a new network manager instance for a client.
+    ///
+    /// Initializes a network topology with a single client node and empty
+    /// collections for servers and drones.
+    ///
+    /// ### Arguments:
+    /// - `client_id`: The ID to use for this client node.
+    ///
+    /// ### Returns:
+    /// - A new network manager instance initialized with the given client ID.
     #[must_use]
     pub fn new(client_id: NodeId) -> Self {
         let mut topology: UnGraphMap<NodeId, ()> = UnGraphMap::new();
@@ -123,6 +192,10 @@ impl ClientRouting {
     }
 
     //---------- topology modifier ----------//
+    /// Clears the network topology and resets to initial state.
+    ///
+    /// Removes all nodes and edges from the topology except for the client node.
+    /// Marks all servers as unreachable while preserving their entries.
     pub fn clear_topology(&mut self) {
         self.topology.clear();
         self.topology.add_node(self.client_id);
@@ -132,6 +205,15 @@ impl ClientRouting {
         }
     }
 
+    /// Removes a channel to a neighboring node and updates routing paths.
+    ///
+    /// Removes the direct connection between the client and the specified neighbor.
+    /// If the neighbor becomes isolated (has no other connections), it is also removed
+    /// from the topology.
+    /// Only recomputes paths if a channel was removed
+    ///
+    /// ### Arguments:
+    /// - `neighbor`: The ID of the neighbor node to disconnect from.
     pub fn remove_channel_to_neighbor(&mut self, neighbor: NodeId) {
         if self
             .topology
@@ -146,6 +228,18 @@ impl ClientRouting {
         }
     }
 
+    /// Adds a channel to a neighboring node and updates routing paths if necessary.
+    ///
+    /// Creates a direct connection between the client and the specified neighbor.
+    /// If the neighbor doesn't exist in the topology, it's added as a new drone node.
+    /// Only recomputes paths if a new edge was actually added
+    ///
+    /// ### Arguments:
+    /// - `neighbor`: The ID of the node to connect to.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<(NodeId, Path)>)`: List of servers that became reachable after adding the channel.
+    /// - `None`: If the channel already existed.
     pub fn add_channel_to_neighbor(&mut self, neighbor: NodeId) -> Option<Vec<(NodeId, Path)>> {
         if !self.topology.contains_node(neighbor) {
             self.topology.add_node(neighbor);
@@ -165,6 +259,13 @@ impl ClientRouting {
         }
     }
 
+    /// Removes a node from the network topology and updates routing paths.
+    ///
+    /// Removes the specified node from the topology and its associated drone information.
+    /// If the node was successfully removed, routing paths are recomputed.
+    ///
+    /// ### Arguments:
+    /// - `node`: The ID of the node to remove.
     pub fn remove_node(&mut self, node: NodeId) {
         if self.topology.remove_node(node) {
             self.drones_info.remove(&node);
@@ -173,6 +274,18 @@ impl ClientRouting {
         }
     }
 
+    /// Adds a new path to the network topology and updates routing information.
+    ///
+    /// This function processes a flood path, adding any new nodes and edges to the topology.
+    /// It also categorizes nodes as drones, servers, or clients based on their type.
+    /// Only recomputes routing paths if the topology was actually modified
+    ///
+    /// ### Arguments:
+    /// - `path`: A reference to the flood path containing nodes and their types.
+    ///
+    /// ### Returns:
+    /// - `Some(Vec<(NodeId, Path)>)`: List of servers that became reachable after topology update.
+    /// - `None`: If the path is empty or if no topology changes were needed.
     pub fn add_path(&mut self, path: &FloodPath) -> Option<Vec<(NodeId, Path)>> {
         //check if path is empty and
         let mut iter = path.iter();
@@ -218,6 +331,12 @@ impl ClientRouting {
         }
     }
 
+    /// Update drone's information in the path from client to the given server.
+    ///
+    /// Call function below
+    ///
+    /// ### Arguments:
+    /// - `server`: The ID of the target server.
     //---------- update info on packet exchanged ----------//
     pub fn correct_send_to(&mut self, server: NodeId) {
         if let Some(server_info) = self.servers_info.get(&server) {
@@ -225,6 +344,12 @@ impl ClientRouting {
         }
     }
 
+    /// Updates drone statistics for successful message transmission along a path.
+    ///
+    /// Increments the correct travel count for each drone in the given path.
+    ///
+    /// ### Arguments:
+    /// - `path`: A reference to the path containing drone IDs that successfully transmitted the message.
     pub fn correct_exchanged_with(&mut self, path: &Path) {
         for drone in path {
             if let Some(drone_info) = self.drones_info.get_mut(drone) {
